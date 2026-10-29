@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UA 比價卡組</title>
+<meta name="description" content="Union Arena 日文版卡牌：遊々亭、Hobby Station、Dorasuta 比價與卡組編輯">
+<meta name="theme-color" content="#16141f">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='10' y='4' width='40' height='56' rx='6' fill='%23d6334a'/%3E%3Crect x='16' y='10' width='28' height='44' rx='3' fill='none' stroke='%23fff' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="view-search">
+
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <h1>UA 比價卡組</h1>
+      <p id="dataStamp" class="stamp">載入中…</p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button data-view="search" class="tab active" role="tab">找卡</button>
+    <button data-view="deck" class="tab" role="tab">卡組 <span id="deckBadge" class="badge">0</span></button>
+    <button data-view="settings" class="tab" role="tab">匯入・設定</button>
+  </nav>
+</header>
+
+<div id="notice" class="notice" hidden></div>
+
+<main class="layout">
+  <!-- ========== 找卡 ========== -->
+  <section id="panelSearch" class="panel panel-search">
+    <div class="search-bar">
+      <input id="q" type="search" placeholder="搜尋卡名或卡號（例：シャイ、SHY-1-046）" autocomplete="off">
+    </div>
+    <div class="filters">
+      <select id="fSet" aria-label="系列"><option value="">全部系列</option></select>
+      <select id="fRar" aria-label="稀有度"><option value="">全部稀有度</option></select>
+      <select id="fSort" aria-label="排序">
+        <option value="num">卡號順</option>
+        <option value="low">最低價：便宜→貴</option>
+        <option value="high">最低價：貴→便宜</option>
+      </select>
+      <label class="check"><input id="fStock" type="checkbox"> 只看有庫存</label>
+    </div>
+    <p id="resultInfo" class="result-info"></p>
+    <ul id="results" class="card-list"></ul>
+    <button id="more" class="btn ghost wide" hidden>顯示更多</button>
+  </section>
+
+  <!-- ========== 卡組 ========== -->
+  <section id="panelDeck" class="panel panel-deck">
+    <div class="deck-head">
+      <select id="deckSelect" aria-label="選擇卡組"></select>
+      <div class="deck-actions">
+        <button class="btn small" data-act="new">新增</button>
+        <button class="btn small" data-act="rename">改名</button>
+        <button class="btn small" data-act="copy">複製</button>
+        <button class="btn small danger" data-act="delete">刪除</button>
+      </div>
+    </div>
+
+    <div id="rules" class="rules"></div>
+    <div id="totals" class="totals"></div>
+
+    <div class="deck-tools">
+      <button id="btnCheapest" class="btn small">全部換成最便宜版本</button>
+      <button id="btnClear" class="btn small ghost">清空</button>
+    </div>
+
+    <ul id="deckList" class="card-list deck"></ul>
+    <p id="deckEmpty" class="empty">卡組是空的。到「找卡」按 ＋ 加入卡片。</p>
+
+    <div class="export">
+      <h3>匯出與分享</h3>
+      <div class="export-btns">
+        <button id="btnText" class="btn">複製清單</button>
+        <button id="btnImage" class="btn">下載圖片</button>
+        <button id="btnCode" class="btn">複製卡組代碼</button>
+        <button id="btnLoadCode" class="btn ghost">貼上代碼匯入</button>
+      </div>
+      <p class="hint">卡組代碼可以把卡組搬到另一台裝置：在電腦複製代碼，用 LINE 傳到手機，再按「貼上代碼匯入」。</p>
+    </div>
+  </section>
+
+  <!-- ========== 匯入・設定 ========== -->
+  <section id="panelSettings" class="panel panel-settings">
+    <div class="block">
+      <h3>價格資料</h3>
+      <div id="shopStatus" class="shop-status"></div>
+    </div>
+
+    <div class="block">
+      <h3>Hobby Station、Dorasuta 一鍵匯入</h3>
+      <p>這兩家有防機器人保護，無法在伺服器上自動抓，所以改用書籤：在你自己的瀏覽器裡用正常速度把每個系列讀一遍。</p>
+      <ol class="steps">
+        <li>按 <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> 打開 Chrome 的書籤列。</li>
+        <li>把下面這個按鈕<b>拖曳</b>到書籤列上。<br><a id="bookmarklet" class="bookmarklet" href="#">UA 匯入價格</a></li>
+        <li>打開 <a href="https://www.hobbystation-single.jp/ua/top" target="_blank" rel="noopener">Hobby Station</a> 或 <a href="https://dorasuta.jp/union-arena" target="_blank" rel="noopener">Dorasuta</a> 的網站（任何一頁都可以）。</li>
+        <li>按書籤列上的「UA 匯入價格」→ 選「匯入全部系列」。</li>
+        <li>右下角會顯示進度，每家大約 10～15 分鐘。這段時間那個分頁不要關，可以去做別的事。</li>
+      </ol>
+      <p class="hint">第一次按時，Chrome 可能會擋下彈出視窗：網址列右邊出現圖示時，選「一律允許」再按一次書籤。</p>
+    </div>
+
+    <div class="block">
+      <h3>自動同步到手機（GitHub）</h3>
+      <p>設定後，每次在這台電腦匯入完成，價格會自動存到你的 GitHub 專案，手機打開網站就看得到。只需要在<b>按書籤的那台電腦</b>設定一次。</p>
+      <p id="ghState" class="gh-state">尚未設定</p>
+      <details class="gh-how">
+        <summary>如何建立金鑰（約 2 分鐘）</summary>
+        <ol class="steps">
+          <li>打開 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub 建立金鑰頁面</a>（Fine-grained token）。</li>
+          <li><b>Token name</b> 隨便取，例如「UA 比價同步」；<b>Expiration</b> 選最長的期限。</li>
+          <li><b>Repository access</b> 選「Only select repositories」，勾選你的比價網站專案（例如 ua-price）。</li>
+          <li><b>Permissions</b> → Repository permissions → <b>Contents</b> 選「Read and write」。</li>
+          <li>按最下面的 <b>Generate token</b>，複製 github_pat_ 開頭的那串，貼到下面。</li>
+        </ol>
+        <p class="hint">金鑰只存在這台電腦的瀏覽器裡，而且只能改這一個專案。不要把金鑰傳給別人。</p>
+      </details>
+      <div class="gh-form">
+        <label>GitHub 帳號<input id="ghOwner" autocomplete="off" spellcheck="false"></label>
+        <label>專案名稱<input id="ghRepo" autocomplete="off" spellcheck="false"></label>
+        <label class="full">金鑰<input id="ghToken" type="password" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <div class="export-btns">
+        <button id="ghSave" class="btn primary">儲存並測試</button>
+        <button id="ghSync" class="btn" hidden>立即同步</button>
+        <button id="ghRemove" class="btn ghost danger" hidden>移除金鑰</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>備份</h3>
+      <p>備份檔包含所有卡組和這台裝置匯入的價格，也可以用來把卡組搬到另一台裝置。</p>
+      <div class="export-btns">
+        <button id="btnBackup" class="btn">下載備份檔</button>
+        <label class="btn ghost file-btn">從備份檔還原<input id="restoreFile" type="file" accept=".json,application/json"></label>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="importOverlay" class="overlay" hidden>
+  <div class="overlay-box">
+    <div class="spinner"></div>
+    <p id="importMsg">等待匯入資料…</p>
+  </div>
+</div>
+
+<div id="dialog" class="overlay" hidden>
+  <div class="overlay-box dialog-box">
+    <p id="dialogTitle" class="dialog-title"></p>
+    <textarea id="dialogInput" rows="3"></textarea>
+    <div class="dialog-btns">
+      <button id="dialogCancel" class="btn ghost">取消</button>
+      <button id="dialogOk" class="btn primary">確定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
