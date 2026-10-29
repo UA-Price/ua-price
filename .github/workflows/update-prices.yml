@@ -1,0 +1,42 @@
+name: 每日更新遊々亭價格
+
+on:
+  schedule:
+    # 每天台灣時間清晨 5:17（UTC 21:17）
+    - cron: "17 21 * * *"
+  # 讓你可以在 GitHub 的 Actions 頁面手動按「Run workflow」
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 抓取遊々亭價格
+        run: python scraper/yuyutei.py
+
+      - name: 存回 GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data/cards.json
+          if git diff --staged --quiet; then
+            echo "價格沒有變動"
+          else
+            git commit -m "更新價格 $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M')"
+            # 書籤匯入可能剛好也在寫入 data/imports.json，先合併再推上去
+            git pull --rebase
+            git push
+          fi
