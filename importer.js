@@ -17,11 +17,32 @@
   const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
     : host.includes("unionarena-tcg.com") ? "colors" : null;
   const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "Dorasuta", colors: "官方卡表（卡片顏色）" }[shop];
-  // 每頁之間的間隔：一般 2.5 秒；Dorasuta 用 Cloudflare，對大量瀏覽比較敏感，放慢到 4 秒；官方卡表每次查詢很小，1.2 秒
-  const DELAY = shop === "dora" ? 4000 : shop === "colors" ? 1200 : 2500;
+  // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
+  // 遊々亭、Hobby Station 5 秒；Dorasuta 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
+  const DELAY = shop === "dora" ? 10000 : shop === "colors" ? 2000 : 5000;
   const COLORS = ["赤", "青", "黄", "緑", "紫"];
   const sets = {}; // 遊々亭的系列代碼 → 系列名稱
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // 等待用的計時器：分頁在背景時，Chrome 會把一般計時器拖慢到一分鐘一次，
+  // 所以改用 Web Worker 計時（不受這個節流影響），讀取間隔還是照設定的秒數。
+  let timerWorker = null;
+  try {
+    const url = URL.createObjectURL(new Blob(["onmessage=function(e){setTimeout(function(){postMessage(e.data.id)},e.data.ms)}"], { type: "text/javascript" }));
+    timerWorker = new Worker(url);
+  } catch (e) { timerWorker = null; } // 網站不允許時，改用一般計時器
+  const waiting = new Map();
+  if (timerWorker) {
+    timerWorker.onmessage = (e) => { const done = waiting.get(e.data); if (done) { waiting.delete(e.data); done(); } };
+    timerWorker.onerror = () => { timerWorker = null; waiting.forEach((done) => done()); waiting.clear(); };
+  }
+  let sleepId = 0;
+  const sleep = (ms) => new Promise((resolve) => {
+    if (!timerWorker) return setTimeout(resolve, ms);
+    const id = ++sleepId;
+    waiting.set(id, resolve);
+    // 保險：萬一 Worker 沒回應，最晚 ms + 60 秒也會繼續
+    setTimeout(() => { if (waiting.has(id)) { waiting.delete(id); resolve(); } }, ms + 60000);
+    timerWorker.postMessage({ id, ms });
+  });
   const STAR = /[★☆]/g;
   const KEY_RE = /([A-Z0-9]+)\/([A-Z0-9]+-\d+-(?:AP)?\d+)/;
 
@@ -182,6 +203,8 @@
   }
 
   const isCheckPage = (html) => /安全な接続を確認中|Just a moment/.test(String(html).slice(0, 3000));
+  const isDenied = (html) => /<title>[^<]*(Access denied|Attention Required|Sorry, you have been blocked)/i.test(String(html).slice(0, 3000));
+  const DENIED_MSG = "這家網站目前擋住你的瀏覽器（Cloudflare：Access denied）。通常是一次讀太多頁被暫時封鎖，過幾個小時到一兩天會自己解除，請先不要匯入這家。";
 
   // 網站要求「確認連線」時：在隱藏的小視窗裡正常打開那一頁，讓網站自己的確認程式在你的瀏覽器裡跑完
   function loadInFrame(url) {
@@ -213,6 +236,7 @@
   async function fetchDoc(url) {
     const r = await fetch(url, { credentials: "include" });
     const html = await r.text();
+    if (isDenied(html)) throw new Error("denied");
     if (!isCheckPage(html)) return new DOMParser().parseFromString(html, "text/html");
     say(msg.textContent.split("\n")[0] + "\n網站正在確認連線，請稍候…");
     return loadInFrame(url); // 確認通過後，之後的頁面就能照常讀取
@@ -389,12 +413,20 @@
     let series;
     if (mode === "all") {
       say("讀取系列清單…");
+      let denied = /Access denied|Attention Required|blocked/i.test(document.title);
       try {
-        series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, colors: seriesListColors }[shop]();
+        if (!denied) series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, colors: seriesListColors }[shop]();
       } catch (e) {
+        if (e.message === "denied") denied = true;
         series = [];
       }
-      if (!series.length) {
+      if (denied) {
+        say(DENIED_MSG);
+        reportDone(DENIED_MSG, false);
+        btns.textContent = "";
+        return finish(15000);
+      }
+      if (!series || !series.length) {
         say("找不到系列清單。請先打開網站首頁或任一系列頁面，再按一次書籤。");
         reportDone("找不到系列清單（網站可能改版或還在確認連線）", false);
         btns.textContent = "";
@@ -421,6 +453,11 @@
         failedSeries++;
         if (e.message === "check") {
           stopReason = "網站一直停在「確認連線」畫面。請重新整理這一頁，等它正常顯示後再按一次書籤。";
+          cancelled = true;
+          break;
+        }
+        if (e.message === "denied") {
+          stopReason = DENIED_MSG;
           cancelled = true;
           break;
         }
