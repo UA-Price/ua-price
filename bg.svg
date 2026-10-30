@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+<defs>
+<linearGradient id="pb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c14ae0"/><stop offset=".55" stop-color="#6a63f0"/><stop offset="1" stop-color="#3f8ef5"/></linearGradient>
+<linearGradient id="bt" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f6ff2"/><stop offset="1" stop-color="#25c9da"/></linearGradient>
+</defs>
+<polyline points="-20,330 260,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.75"/>
+<polyline points="-20,315 247,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.71"/>
+<polyline points="-20,299 235,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.67"/>
+<polyline points="-20,284 222,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.63"/>
+<polyline points="-20,268 210,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.59"/>
+<polyline points="-20,253 197,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.55"/>
+<polyline points="-20,238 184,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.52"/>
+<polyline points="-20,222 172,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.48"/>
+<polyline points="-20,207 159,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.44"/>
+<polyline points="-20,191 147,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.40"/>
+<polyline points="-20,176 134,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.36"/>
+<polyline points="-20,161 121,-20" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.32"/>
+<polyline points="1180,-20 1620,300" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.60"/>
+<polyline points="1190,-20 1620,286" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.56"/>
+<polyline points="1199,-20 1620,271" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.53"/>
+<polyline points="1209,-20 1620,257" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.49"/>
+<polyline points="1218,-20 1620,242" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.45"/>
+<polyline points="1228,-20 1620,228" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.41"/>
+<polyline points="1238,-20 1620,214" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.38"/>
+<polyline points="1247,-20 1620,199" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.34"/>
+<polyline points="1257,-20 1620,185" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.30"/>
+<polyline points="1266,-20 1620,170" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.26"/>
+<polyline points="1620,330 1340,620 1620,900" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.55"/>
+<polyline points="1620,337 1362,620 1620,893" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.52"/>
+<polyline points="1620,344 1383,620 1620,886" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.49"/>
+<polyline points="1620,352 1405,620 1620,878" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.46"/>
+<polyline points="1620,359 1426,620 1620,871" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.43"/>
+<polyline points="1620,366 1448,620 1620,864" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.39"/>
+<polyline points="1620,373 1470,620 1620,857" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.36"/>
+<polyline points="1620,380 1491,620 1620,850" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.33"/>
+<polyline points="1620,388 1513,620 1620,842" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.30"/>
+<polyline points="1620,395 1534,620 1620,835" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.27"/>
+<polyline points="1620,402 1556,620 1620,828" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.24"/>
+<polyline points="-20,560 330,820 240,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.55"/>
+<polyline points="-20,568 312,820 232,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.52"/>
+<polyline points="-20,576 295,820 224,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.48"/>
+<polyline points="-20,584 277,820 216,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.45"/>
+<polyline points="-20,592 260,820 208,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.41"/>
+<polyline points="-20,600 242,820 200,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.38"/>
+<polyline points="-20,608 224,820 192,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.34"/>
+<polyline points="-20,616 207,820 184,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.31"/>
+<polyline points="-20,624 189,820 176,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.28"/>
+<polyline points="-20,632 172,820 168,1020" fill="none" stroke="url(#bt)" stroke-width="1.6" opacity="0.24"/>
+<polyline points="980,1020 1620,560" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.70"/>
+<polyline points="1000,1020 1620,575" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.66"/>
+<polyline points="1019,1020 1620,590" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.63"/>
+<polyline points="1038,1020 1620,605" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.59"/>
+<polyline points="1058,1020 1620,620" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.55"/>
+<polyline points="1078,1020 1620,635" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.52"/>
+<polyline points="1097,1020 1620,650" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.48"/>
+<polyline points="1116,1020 1620,665" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.44"/>
+<polyline points="1136,1020 1620,680" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.41"/>
+<polyline points="1156,1020 1620,695" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.37"/>
+<polyline points="1175,1020 1620,710" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.34"/>
+<polyline points="1194,1020 1620,725" fill="none" stroke="url(#pb)" stroke-width="1.6" opacity="0.30"/>
+<path d="M-40,250 L520,-40" stroke="url(#pb)" stroke-width="10" opacity="0.85" fill="none" stroke-linecap="square"/>
+<path d="M-40,610 L1620,900" stroke="url(#pb)" stroke-width="5" opacity="0.7" fill="none" stroke-linecap="square"/>
+<path d="M960,-40 L1640,560" stroke="url(#bt)" stroke-width="7" opacity="0.75" fill="none" stroke-linecap="square"/>
+<path d="M1060,-40 L1420,360" stroke="url(#pb)" stroke-width="3" opacity="0.6" fill="none" stroke-linecap="square"/>
+<path d="M-40,760 L420,1040" stroke="url(#bt)" stroke-width="4" opacity="0.6" fill="none" stroke-linecap="square"/>
+<path d="M1240,1040 L1640,700" stroke="url(#bt)" stroke-width="4" opacity="0.55" fill="none" stroke-linecap="square"/>
+</svg>

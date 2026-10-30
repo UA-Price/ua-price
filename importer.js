@@ -10,10 +10,11 @@
 
   const SITE = "__SITE__";
   const SITE_ORIGIN = new URL(SITE).origin;
-  const DELAY = 2500; // 每頁之間停 2.5 秒，跟一般人瀏覽的速度差不多
   const host = location.host;
   const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora" : null;
   const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "Dorasuta" }[shop];
+  // 每頁之間的間隔：一般 2.5 秒；Dorasuta 用 Cloudflare，對大量瀏覽比較敏感，放慢到 4 秒
+  const DELAY = shop === "dora" ? 4000 : 2500;
   const sets = {}; // 遊々亭的系列代碼 → 系列名稱
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const STAR = /[★☆]/g;
@@ -87,7 +88,8 @@
         else if (/[◯○◎]/.test(st)) stock = 99;
         const src = (link && link.getAttribute("href")) || (img && img.getAttribute("src")) || "";
         const m = src.match(/\/(?:card|100_140)\/([a-z0-9]+)\/(\d+)/);
-        out.push([num, (rar.match(STAR) || []).length, name, price, stock, link ? link.href : "", rar, m ? m[1] : "", m ? m[2] : ""]);
+        const noImg = img && /noimage/i.test(img.getAttribute("src") || "") ? 1 : 0; // 遊々亭自己也沒有圖
+        out.push([num, (rar.match(STAR) || []).length, name, price, stock, link ? link.href : "", rar, m ? m[1] : "", m ? m[2] : "", noImg]);
       });
     });
     return { items: out };

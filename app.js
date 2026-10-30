@@ -1,4 +1,4 @@
-/* UA 比價卡組 — 網站主程式 */
+/* 查價之境 — 網站主程式 */
 (() => {
   "use strict";
 
@@ -40,18 +40,48 @@
   };
   const yen = (n) => "¥" + Math.round(n).toLocaleString("ja-JP");
   const imgUrl = (c) => (c.set && c.id && !c.noimg ? `https://card.yuyu-tei.jp/ua/100_140/${c.set}/${c.id}.jpg` : "");
-  // 卡圖來源：先用遊々亭的小圖；遊々亭沒有圖時改用官方卡表。
-  // 官方的平行卡編號（_p1、_p2…）跟星星數不一定一致，所以從星星數往下找最接近的那張。
+  /* ---------- 卡圖：全部用官方卡表 ----------
+     官方的平行卡依序編成 _p1、_p2…，跟星星數不一定一致（例如 ★、★★★ 兩種平行卡會是 _p1、_p2），
+     所以先看「同一張卡總共有哪幾種星數」，用排第幾個來對應；對不到時再往下找，最後才用遊々亭的小圖。 */
   const OFFICIAL_IMG = "https://www.unionarena-tcg.com/jp/images/cardlist/card/";
-  function imgCandidates(c) {
+  const NUM_RE = /^[A-Z0-9]+\/[A-Z0-9]+-\d+-(AP)?\d+$/;
+  let VARIANTS = new Map(); // 卡號 → 這張卡有哪些星數（由小到大）
+  function officialList(c) {
+    if (!NUM_RE.test(c.num)) return [];
+    const file = OFFICIAL_IMG + c.num.replace("/", "_");
+    const stars = VARIANTS.get(c.num) || [c.stars || 0];
+    const rank = Math.max(0, stars.indexOf(c.stars || 0));
+    const order = [rank];
+    for (let k = Math.min(Math.max(c.stars || 0, rank), 6); k >= 0; k--) if (!order.includes(k)) order.push(k);
+    return order.slice(0, 4).map((k) => file + (k ? `_p${k}` : "") + ".png");
+  }
+  // 列表用的小圖：透過免費縮圖服務縮小（官網原圖每張約 200KB，手機會很吃流量）
+  const thumbOf = (url, w) => `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=${w}&output=webp&q=82`;
+  let proxyBroken = false; // 縮圖服務掛掉時改直接用官網原圖
+  function imgCandidates(c, size) {
+    const off = officialList(c);
     const list = [];
+    if (size && !proxyBroken) off.forEach((u) => list.push({ src: thumbOf(u, size), proxied: true, orig: u }));
+    off.forEach((u) => list.push({ src: u }));
     const y = imgUrl(c);
-    if (y) list.push(y);
-    if (/^[A-Z0-9]+\/[A-Z0-9]+-\d+-(AP)?\d+$/.test(c.num)) {
-      const file = c.num.replace("/", "_");
-      for (let k = Math.min(c.stars || 0, 4); k >= 0; k--) list.push(OFFICIAL_IMG + file + (k ? `_p${k}` : "") + ".png");
-    }
+    if (y) list.push({ src: y });
     return list;
+  }
+  // 依序嘗試，直到有一張載入成功
+  function setImgChain(img, list, onFail) {
+    let i = 0;
+    const failed = new Set();
+    const tryNext = () => {
+      while (i < list.length && proxyBroken && list[i].proxied) i++;
+      if (i >= list.length) return onFail();
+      img.src = list[i].src;
+    };
+    img.addEventListener("error", () => { if (list[i] && list[i].proxied) failed.add(list[i].orig); i++; tryNext(); });
+    img.addEventListener("load", () => {
+      const cur = list[i];
+      if (cur && !cur.proxied && failed.has(cur.src)) proxyBroken = true; // 原圖可以、縮圖不行 → 縮圖服務有問題
+    });
+    tryNext();
   }
   const yuyuUrl = (c) => `https://yuyu-tei.jp/sell/ua/card/${c.set}/${c.id}`;
   const starsOf = (s) => (String(s || "").match(/[★☆]/g) || []).length;
@@ -261,10 +291,15 @@
         c.offers[shop] = offerFrom(item, shop);
       }
     }
+    VARIANTS = new Map();
     for (const c of CARDS) {
       c.search = (c.name + " " + c.num + " " + c.rar).toLowerCase();
       c.best = bestOffer(c);
+      const v = VARIANTS.get(c.num) || [];
+      if (!v.includes(c.stars || 0)) v.push(c.stars || 0);
+      VARIANTS.set(c.num, v);
     }
+    for (const v of VARIANTS.values()) v.sort((a, b) => a - b);
   }
 
   function bestOffer(c) {
@@ -324,6 +359,7 @@
     saveDecks();
     renderDeck();
     renderResultsCounts();
+    renderModal();
   }
   const copiesOfBase = (base) => {
     let n = 0;
@@ -380,16 +416,85 @@
   }
 
   function thumbEl(c, cls = "thumb") {
-    const srcs = imgCandidates(c);
-    if (!srcs.length) return el("div", { class: cls + " none", text: "無圖" });
-    let i = 0;
-    const img = el("img", { class: cls, src: srcs[0], alt: "", loading: "lazy", referrerpolicy: "no-referrer", decoding: "async" });
-    img.addEventListener("error", () => {
-      i++;
-      if (i < srcs.length) img.src = srcs[i];
-      else img.replaceWith(el("div", { class: cls + " none", text: "無圖" }));
-    });
+    const list = imgCandidates(c, 160);
+    if (!list.length) return el("div", { class: cls + " none", text: "無圖" });
+    const img = el("img", { class: cls, alt: "", loading: "lazy", referrerpolicy: "no-referrer", decoding: "async" });
+    setImgChain(img, list, () => img.replaceWith(el("div", { class: cls + " none", text: "無圖" })));
     return img;
+  }
+
+  /* ---------- 放大視窗 ---------- */
+  const SEARCH_URL = {
+    yuyu: (q) => `https://yuyu-tei.jp/sell/ua/s/search?search_word=${encodeURIComponent(q)}`,
+    hs: (q) => `https://www.hobbystation-single.jp/ua/product/list?match_type=1&search_word=${encodeURIComponent(q)}`,
+    dora: (q) => `https://dorasuta.jp/union-arena/product-list?kw=${encodeURIComponent(q)}`,
+  };
+  let modalKey = null;
+  function openCard(k) {
+    const c = BYKEY.get(k) || cardFor(k);
+    if (!c) return;
+    const wasOpen = !!modalKey;
+    modalKey = k;
+    renderModal();
+    $("#cardModal").hidden = false;
+    document.body.classList.add("modal-open");
+    if (!wasOpen) { try { history.pushState({ uaModal: 1 }, ""); } catch (e) {} }
+    setTimeout(() => $("#cmClose").focus(), 30);
+  }
+  function closeCard(fromHistory) {
+    if (!modalKey) return;
+    modalKey = null;
+    $("#cardModal").hidden = true;
+    document.body.classList.remove("modal-open");
+    if (!fromHistory && history.state && history.state.uaModal) { try { history.back(); } catch (e) {} }
+  }
+  function renderModal() {
+    if (!modalKey) return;
+    const c = BYKEY.get(modalKey) || cardFor(modalKey);
+    // 圖
+    const box = $("#cmImage");
+    box.textContent = "";
+    const list = imgCandidates(c, 0);
+    if (list.length) {
+      const img = el("img", { alt: c.name, referrerpolicy: "no-referrer", decoding: "async" });
+      setImgChain(img, list, () => img.replaceWith(el("div", { class: "cm-noimg", text: "無圖" })));
+      box.append(img);
+    } else box.append(el("div", { class: "cm-noimg", text: "無圖" }));
+    // 名稱
+    $("#cmName").textContent = c.name;
+    const meta = $("#cmMeta");
+    meta.textContent = "";
+    meta.append(c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, SETNAMES[c.set] ? el("span", { class: "cm-set", text: SETNAMES[c.set] }) : "");
+    // 三家價格（由上到下）
+    const shops = $("#cmShops");
+    shops.textContent = "";
+    for (const shop of Object.keys(SHOPS)) {
+      const o = c.offers[shop];
+      const isBest = o && c.best === o && o.s !== 0;
+      const stockTxt = !o ? "" : o.s === 0 ? "售完" : o.s > 0 && o.s < 99 ? `剩 ${o.s} 張` : o.s === 99 ? "有庫存" : "";
+      const when = o && o.t ? `${new Date(o.t).toLocaleDateString()} 匯入` + (ageText(o.t) ? "・舊" : "") : "";
+      const link = o && o.url
+        ? el("a", { class: "btn small cm-go", href: o.url, target: "_blank", rel: "noopener" }, `前往${SHOPS[shop].short} ↗`)
+        : el("a", { class: "btn small ghost cm-go", href: SEARCH_URL[shop](c.base), target: "_blank", rel: "noopener" }, `在${SHOPS[shop].short}搜尋 ↗`);
+      shops.append(el("div", { class: `cm-shop ${shop}${isBest ? " best" : ""}${o && o.s === 0 ? " sold" : ""}${o ? "" : " none"}` },
+        el("div", { class: "cm-shop-head" },
+          el("span", { class: "cm-shop-name", text: SHOPS[shop].name }),
+          isBest ? el("span", { class: "cm-best", text: "最便宜" }) : null),
+        el("div", { class: "cm-price", text: o ? yen(o.p) : "沒有資料" }),
+        el("div", { class: "cm-stock" }, stockTxt, stockTxt && when ? " ・ " : "", when),
+        link));
+    }
+    // 卡組
+    const q = deck().cards[c.k] || 0;
+    const full = !isAP(c.num) && copiesOfBase(c.base) >= MAX_COPIES;
+    const dk = $("#cmDeck");
+    dk.textContent = "";
+    dk.append(
+      el("span", { class: "cm-deck-label", text: `「${deck().name}」裡有` }),
+      el("div", { class: "qty" },
+        el("button", { class: "icon-btn", "aria-label": "減少", disabled: !q || null, onclick: () => setQty(c.k, q - 1) }, "−"),
+        el("span", { text: q }),
+        el("button", { class: "icon-btn add", "aria-label": "增加", disabled: full || null, title: full ? `同卡號最多 ${MAX_COPIES} 張` : "", onclick: () => setQty(c.k, q + 1) }, "＋")));
   }
 
   function ageText(t) {
@@ -419,7 +524,7 @@
   function cardRow(c) {
     const inDeck = deck().cards[c.k] || 0;
     const full = copiesOfBase(c.base) >= MAX_COPIES && !isAP(c.num);
-    return el("li", { class: "card-row", "data-k": c.k },
+    return el("li", { class: "card-row", "data-k": c.k, tabindex: "0", title: "點一下看大圖和三家價格" },
       thumbEl(c),
       el("div", {},
         el("div", { class: "c-name", text: c.name }),
@@ -528,7 +633,7 @@
       if (g !== lastGroup && entries.some((e) => isAP(e.c.num))) { ul.append(el("li", { class: "group-title", text: g })); lastGroup = g; }
       const b = c.best;
       const stockShort = b && (b.s === 0 || (b.s > 0 && b.s < 99 && b.s < q));
-      ul.append(el("li", { class: "card-row" },
+      ul.append(el("li", { class: "card-row", "data-k": c.k, tabindex: "0" },
         thumbEl(c),
         el("div", {},
           el("div", { class: "c-name", text: c.name }),
@@ -630,31 +735,37 @@
     const rows = Math.ceil(entries.length / cols);
     const cw = PAD * 2 + cols * W + (cols - 1) * G;
     const ch = HEAD + rows * (H + G) - G + FOOT + PAD;
-    const imgs = await Promise.all(entries.map((e) => loadImage(imgUrl(e.c))));
+    // 縮圖服務允許跨網站讀取，畫進圖片裡才不會出錯
+    const loadFirst = async (c) => {
+      for (const u of officialList(c)) { const im = await loadImage(thumbOf(u, 300)); if (im) return im; }
+      return null;
+    };
+    const imgs = await Promise.all(entries.map((e) => loadFirst(e.c)));
 
     const draw = (withImages) => {
       const cv = document.createElement("canvas");
       cv.width = cw * 2; cv.height = ch * 2;
       const g = cv.getContext("2d");
       g.scale(2, 2);
-      g.fillStyle = "#16141f"; g.fillRect(0, 0, cw, ch);
+      g.fillStyle = "#0a1036"; g.fillRect(0, 0, cw, ch);
+      g.strokeStyle = "#7fb3e8"; g.lineWidth = 4; g.strokeRect(2, 2, cw - 4, ch - 4);
       g.fillStyle = "#ffffff"; g.font = "bold 22px sans-serif"; g.textBaseline = "top";
       g.fillText(deck().name, PAD, 18);
-      g.fillStyle = "#a9a6b4"; g.font = "14px sans-serif";
+      g.fillStyle = "#b9c4ec"; g.font = "14px sans-serif";
       g.fillText(`主卡組 ${a.main} 張${a.ap ? `　AP ${a.ap} 張` : ""}`, PAD, 46);
       entries.forEach((e, i) => {
         const x = PAD + (i % cols) * (W + G), y = HEAD + Math.floor(i / cols) * (H + G);
         const im = withImages ? imgs[i] : null;
         if (im) g.drawImage(im, x, y, W, H);
         else {
-          g.fillStyle = "#2a2836"; g.fillRect(x, y, W, H);
+          g.fillStyle = "#142060"; g.fillRect(x, y, W, H);
           g.fillStyle = "#ecebf1"; g.font = "bold 12px sans-serif";
           wrapText(g, e.c.name, x + 6, y + 8, W - 12, 15, 5);
           g.fillStyle = "#a9a6b4"; g.font = "10px sans-serif";
           g.fillText(e.c.base, x + 6, y + H - 30);
           g.fillText(e.c.rar || "", x + 6, y + H - 17);
         }
-        g.fillStyle = "#d6334a";
+        g.fillStyle = "#f04b26";
         g.beginPath(); g.arc(x + W - 14, y + H - 14, 13, 0, Math.PI * 2); g.fill();
         g.fillStyle = "#fff"; g.font = "bold 14px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
         g.fillText(String(e.q), x + W - 14, y + H - 13);
@@ -1029,6 +1140,7 @@
   function refreshAll() {
     buildCards();
     renderStamp();
+    renderModal();
     fillFilters();
     runSearch();
     renderDeck();
@@ -1119,6 +1231,22 @@
         toast("代碼格式不正確");
       }
     });
+    // 點卡片 → 放大視窗（點到按鈕、連結時不算）
+    const onRowClick = (e) => {
+      if (e.target.closest("button, a, input, select")) return;
+      const row = e.target.closest(".card-row[data-k]");
+      if (row) openCard(row.dataset.k);
+    };
+    const onRowKey = (e) => {
+      if (e.key !== "Enter" || e.target.closest("button, a")) return;
+      const row = e.target.closest(".card-row[data-k]");
+      if (row) openCard(row.dataset.k);
+    };
+    ["#results", "#deckList"].forEach((s) => { $(s).addEventListener("click", onRowClick); $(s).addEventListener("keydown", onRowKey); });
+    $("#cmClose").addEventListener("click", () => closeCard());
+    $("#cardModal").addEventListener("click", (e) => { if (e.target.id === "cardModal") closeCard(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalKey) closeCard(); });
+    window.addEventListener("popstate", () => { if (modalKey) closeCard(true); });
     $("#ghSave").addEventListener("click", saveGitHub);
     $("#ghSync").addEventListener("click", async () => {
       $("#ghState").textContent = "同步中…";
