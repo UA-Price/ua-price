@@ -766,12 +766,37 @@
     });
   }
 
+  // 新分頁裡顯示的頁面（標題、圖片、下載按鈕）
+  const escHtml = (t) => String(t).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  function imagePageHtml(title, body) {
+    return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escHtml(title)}</title><style>
+html,body{margin:0;min-height:100%;background:#050822;color:#b9c4ec;font:14px/1.6 system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif}
+main{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;box-sizing:border-box}
+img{display:block;max-width:100%;max-height:calc(100vh - 110px);height:auto;border-radius:10px;box-shadow:0 0 0 1px #7fb3e8,0 0 30px rgba(91,108,242,.45)}
+a{display:inline-block;padding:9px 18px;border-radius:10px;background:linear-gradient(160deg,#ff7a3d,#e5262c);color:#fff;font-weight:700;text-decoration:none}
+p{margin:0;font-size:12px;color:#8593c7}
+</style></head><body><main>${body}</main></body></html>`;
+  }
+
   async function exportImage() {
     const entries = deckEntries();
     if (!entries.length) return toast("卡組是空的");
+    // 先開好新分頁（要在按下的當下開，瀏覽器才不會擋），圖片產生好再放進去
+    let win = null;
+    try { win = window.open("", "_blank"); } catch (e) { win = null; }
+    if (win) {
+      try {
+        win.document.open();
+        win.document.write(imagePageHtml(deck().name, "<p>產生圖片中…</p>"));
+        win.document.close();
+      } catch (e) { win = null; }
+    }
     toast("產生圖片中…", 8000);
     const a = analyze(entries);
-    const cols = Math.min(10, Math.max(5, entries.length));
+    // 手機螢幕窄，一排 5 張圖才不會太小；電腦一排最多 10 張
+    const maxCols = window.innerWidth < 700 ? 5 : 10;
+    const cols = Math.min(maxCols, Math.max(Math.min(5, maxCols), entries.length));
     const W = 100, H = 140, G = 8, PAD = 20, HEAD = 70, FOOT = 50;
     const rows = Math.ceil(entries.length / cols);
     const cw = PAD * 2 + cols * W + (cols - 1) * G;
@@ -823,14 +848,31 @@
     let blob;
     try { blob = await new Promise((r) => cv.toBlob(r, "image/png")); }
     catch (e) { cv = draw(false); blob = await new Promise((r) => cv.toBlob(r, "image/png")); }
-    if (!blob) return toast("圖片產生失敗");
+    if (!blob) {
+      if (win) win.close();
+      return toast("圖片產生失敗");
+    }
+    const fileName = `${deck().name}.png`;
+    // 新分頁：整頁只顯示這張圖，下面附下載按鈕
+    if (win && !win.closed) {
+      const dataUrl = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+      try {
+        win.document.open();
+        win.document.write(imagePageHtml(deck().name,
+          `<img src="${dataUrl}" alt="${escHtml(deck().name)}"><a href="${dataUrl}" download="${escHtml(fileName)}">下載圖片</a><p>手機可以直接長按圖片儲存</p>`));
+        win.document.close();
+        toast("已在新分頁開啟圖片");
+        return;
+      } catch (e) { /* 寫不進去就改成直接下載 */ }
+    }
+    // 瀏覽器擋了新分頁：改成直接下載
     const url = URL.createObjectURL(blob);
-    const link = el("a", { href: url, download: `${deck().name}.png` });
+    const link = el("a", { href: url, download: fileName });
     document.body.append(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    toast("圖片已下載");
+    toast("瀏覽器擋了新分頁，已改成直接下載");
   }
   function wrapText(g, text, x, y, maxW, lh, maxLines) {
     let line = "", n = 0;
