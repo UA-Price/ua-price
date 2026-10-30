@@ -35,7 +35,7 @@
   <nav class="tabs" role="tablist">
     <button data-view="search" class="tab active" role="tab">找卡</button>
     <button data-view="deck" class="tab" role="tab">卡組 <span id="deckBadge" class="badge">0</span></button>
-    <button data-view="settings" class="tab" role="tab">匯入・設定</button>
+    <button data-view="settings" class="tab" role="tab"><span class="admin-only">匯入・設定</span><span class="viewer-only">價格資料</span></button>
   </nav>
 </header>
 
@@ -105,7 +105,7 @@
       <div id="shopStatus" class="shop-status"></div>
     </div>
 
-    <div class="block">
+    <div class="block admin-only">
       <h3>一鍵匯入價格（遊々亭・Hobby Station・Dorasuta）</h3>
       <p>三家都不讓雲端伺服器自動抓價，所以改用書籤：在你自己的瀏覽器裡用正常速度把每個系列讀一遍。<b>請先從遊々亭開始</b>，卡片清單、稀有度和卡圖都來自遊々亭。</p>
       <ol class="steps">
@@ -119,7 +119,7 @@
       <p class="hint"><b>卡片顏色</b>：打開 <a href="https://www.unionarena-tcg.com/jp/cardlist/" target="_blank" rel="noopener">官方卡表</a>，按同一個書籤 →「匯入卡片顏色」（約 5～6 分鐘）。顏色不會變，有新作品時再按一次就好。</p>
     </div>
 
-    <div class="block">
+    <div class="block admin-only">
       <h3>自動同步到手機（GitHub）</h3>
       <p>設定後，每次在這台電腦匯入完成，價格會自動存到你的 GitHub 專案，手機打開網站就看得到。只需要在<b>按書籤的那台電腦</b>設定一次。</p>
       <p id="ghState" class="gh-state">尚未設定</p>
@@ -146,7 +146,7 @@
       </div>
     </div>
 
-    <div class="block">
+    <div class="block admin-only">
       <h3>備份</h3>
       <p>備份檔包含所有卡組和這台裝置匯入的價格，也可以用來把卡組搬到另一台裝置。</p>
       <div class="export-btns">

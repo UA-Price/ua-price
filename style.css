@@ -490,3 +490,7 @@ body.modal-open { overflow: hidden; }
 .shop-row.cheapest .sr-price { color: var(--ok); }
 .sr-note { grid-area: note; font-size: 12px; color: var(--ink-3); }
 .sr-note.warn { color: var(--warn); }
+
+/* ---------- 管理用電腦才顯示的東西 ---------- */
+body:not(.admin) .admin-only { display: none !important; }
+body.admin .viewer-only { display: none !important; }

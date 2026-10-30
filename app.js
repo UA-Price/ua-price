@@ -34,7 +34,7 @@
   const PAGE_SIZE = 50;
   const DECK_SIZE = 50;
   const MAX_COPIES = 4;
-  const LS = { decks: "ua.decks", current: "ua.current", imports: "ua.imports", gh: "ua.gh", mode: "ua.totalMode" };
+  const LS = { decks: "ua.decks", current: "ua.current", imports: "ua.imports", gh: "ua.gh", mode: "ua.totalMode", admin: "ua.admin" };
   const TOTAL_MODES = [["low", "全部取最低"], ["high", "全部取最高"], ["shop", "各店分開算"]];
 
   const $ = (s) => document.querySelector(s);
@@ -1074,6 +1074,18 @@ p{margin:0;font-size:12px;color:#8593c7}
   /* ======================= GitHub 同步 ======================= */
   let gh = store.get(LS.gh, null); // { owner, repo, branch, token }
 
+  // 「管理用電腦」：有設定 GitHub 金鑰，或用 網址#admin 打開過。其他裝置的設定頁只顯示價格資料。
+  function isAdmin() {
+    return !!(gh && gh.token) || store.get(LS.admin, false) === true;
+  }
+  function applyAdminMode() {
+    if (location.hash === "#admin") {
+      store.set(LS.admin, true);
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    document.body.classList.toggle("admin", isAdmin());
+  }
+
   function guessRepo() {
     const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
     if (!m) return { owner: "", repo: "" };
@@ -1183,6 +1195,7 @@ p{margin:0;font-size:12px;color:#8593c7}
       const branch = await testGitHub({ owner, repo, token });
       gh = { owner, repo, branch, token };
       store.set(LS.gh, gh);
+      applyAdminMode();
       $("#ghToken").value = "";
       renderGitHub();
       toast("連線成功，開始同步…");
@@ -1208,7 +1221,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     for (const shop of DATA_KEYS) {
       const inf = eff[shop];
       const n = inf ? Object.keys(inf.items || {}).length : 0;
-      const canClear = n && (imports[shop] || (gh && gh.token));
+      const canClear = n && isAdmin() && (imports[shop] || (gh && gh.token));
       box.append(el("div", { class: "shop-line" + (shop === "colors" ? " colors" : ""), style: `--c: var(--${shop})` },
         el("div", {}, el("span", { class: "nm", text: SOURCE_NAME(shop) }),
           el("small", { text: n ? `${n.toLocaleString()} 筆・最後匯入 ${new Date(inf.t).toLocaleString()}` : "還沒有匯入" })),
@@ -1290,7 +1303,9 @@ p{margin:0;font-size:12px;color:#8593c7}
 
   /* ======================= 畫面切換與事件 ======================= */
   function switchView(v) {
-    document.body.className = "view-" + v;
+    // 只換掉 view-xxx，保留 admin、modal-open 等其他狀態
+    document.body.classList.remove("view-search", "view-deck", "view-settings");
+    document.body.classList.add("view-" + v);
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === v));
     window.scrollTo({ top: 0 });
   }
@@ -1416,8 +1431,10 @@ p{margin:0;font-size:12px;color:#8593c7}
     $("#ghRemove").addEventListener("click", async () => {
       if (!(await confirmBox("確定移除這台電腦上的 GitHub 金鑰？（已同步的價格不會被刪除）"))) return;
       gh = null;
-      localStorage.removeItem(LS.gh);
-      renderGitHub();
+      try { localStorage.removeItem(LS.gh); localStorage.removeItem(LS.admin); } catch (e) {}
+      applyAdminMode();
+      renderSettings();
+      if (!isAdmin()) switchView("search");
     });
     $("#btnBackup").addEventListener("click", backup);
     $("#restoreFile").addEventListener("change", (e) => {
@@ -1451,12 +1468,16 @@ p{margin:0;font-size:12px;color:#8593c7}
   /* ======================= 啟動 ======================= */
   let importsReady = Promise.resolve();
   async function init() {
+    applyAdminMode();
     importsReady = loadLocalImports();
     bindEvents();
     renderDeck();
     setupBookmarklet();
     window.addEventListener("message", onImportMessage);
-    window.addEventListener("hashchange", () => { if (location.hash === "#import") startImportMode(); });
+    window.addEventListener("hashchange", () => {
+      if (location.hash === "#import") startImportMode();
+      if (location.hash === "#admin") { applyAdminMode(); renderSettings(); switchView("settings"); }
+    });
     if (location.hash === "#import") startImportMode();
     await Promise.all([importsReady, loadRemoteImports()]);
     try {
@@ -1477,7 +1498,9 @@ p{margin:0;font-size:12px;color:#8593c7}
     $("#dataStamp").textContent = latest ? `價格最後更新 ${fmt(latest)}` : "還沒有價格資料";
     const empty = !CARDS.length;
     $("#notice").hidden = !empty;
-    if (empty) $("#notice").textContent = "還沒有價格資料。請用電腦到「匯入・設定」分頁設定書籤，先從遊々亭匯入（卡片清單和卡圖也會一起匯入）。";
+    if (empty) $("#notice").textContent = isAdmin()
+      ? "還沒有價格資料。請用電腦到「匯入・設定」分頁設定書籤，先從遊々亭匯入（卡片清單和卡圖也會一起匯入）。"
+      : "價格資料還沒準備好，請稍後再來看看。";
   }
 
   init();
