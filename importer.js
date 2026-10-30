@@ -12,8 +12,9 @@
   const SITE_ORIGIN = new URL(SITE).origin;
   const DELAY = 2500; // 每頁之間停 2.5 秒，跟一般人瀏覽的速度差不多
   const host = location.host;
-  const shop = host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora" : null;
-  const SHOP_NAME = { hs: "Hobby Station", dora: "Dorasuta" }[shop];
+  const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora" : null;
+  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "Dorasuta" }[shop];
+  const sets = {}; // 遊々亭的系列代碼 → 系列名稱
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const STAR = /[★☆]/g;
   const KEY_RE = /([A-Z0-9]+)\/([A-Z0-9]+-\d+-(?:AP)?\d+)/;
@@ -49,8 +50,47 @@
   const finish = (ms) => setTimeout(() => { box.remove(); window.__uaImporterRunning = false; }, ms);
 
   if (!shop) {
-    say("請在 Hobby Station 或 Dorasuta 的網站上使用這個書籤。");
+    say("請在遊々亭、Hobby Station 或 Dorasuta 的網站上使用這個書籤。");
     return finish(5000);
+  }
+
+  /* ---------- 解析：遊々亭 ---------- */
+  function parseYuyu(doc) {
+    const out = [];
+    const sections = doc.querySelectorAll("div.cards-list");
+    (sections.length ? [...sections] : [doc]).forEach((sec) => {
+      const head = sec.querySelector("h3 span");
+      const secRar = head ? head.textContent.trim() : "";
+      sec.querySelectorAll(".card-product").forEach((c) => {
+        const numEl = c.querySelector("span.border");
+        const nameEl = c.querySelector("h4");
+        const priceEl = c.querySelector("strong");
+        const stockEl = c.querySelector(".cart_sell_zaiko");
+        const img = c.querySelector("img.card");
+        const link = c.querySelector('a[href*="/sell/ua/card/"]');
+        let num = numEl ? numEl.textContent.trim() : "";
+        let name = nameEl ? nameEl.textContent.replace(/\s+/g, " ").trim() : "";
+        let rar = secRar;
+        const alt = img ? (img.getAttribute("alt") || "").split(" ") : [];
+        if (alt.length >= 2) {
+          if (!num) num = alt[0];
+          if (alt[0] === num) rar = alt[1];
+          if (!name) name = alt.slice(2).join(" ");
+        }
+        if (!KEY_RE.test(num)) return;
+        const price = +((priceEl ? priceEl.textContent : "").replace(/[^\d]/g, ""));
+        if (!price) return;
+        const st = (stockEl ? stockEl.textContent : "").replace(/\s+/g, "").replace(/^在庫[:：]?/, "");
+        let stock = -1;
+        if (/[×✕]/.test(st)) stock = 0;
+        else if (/\d+/.test(st)) stock = Math.min(+st.match(/\d+/)[0], 98);
+        else if (/[◯○◎]/.test(st)) stock = 99;
+        const src = (link && link.getAttribute("href")) || (img && img.getAttribute("src")) || "";
+        const m = src.match(/\/(?:card|100_140)\/([a-z0-9]+)\/(\d+)/);
+        out.push([num, (rar.match(STAR) || []).length, name, price, stock, link ? link.href : "", rar, m ? m[1] : "", m ? m[2] : ""]);
+      });
+    });
+    return { items: out };
   }
 
   /* ---------- 解析：Hobby Station ---------- */
@@ -122,6 +162,22 @@
   }
 
   /* ---------- 系列清單 ---------- */
+  function readVers(doc) {
+    const list = [];
+    doc.querySelectorAll('input[name="vers[]"]').forEach((inp) => {
+      const code = (inp.value || "").trim();
+      if (!code || sets[code]) return;
+      const label = inp.id ? doc.querySelector(`label[for="${CSS.escape(inp.id)}"]`) : null;
+      sets[code] = label ? label.textContent.replace(/\s+/g, " ").trim() : code;
+      list.push({ label: sets[code], url: location.origin + "/sell/ua/s/" + code, code });
+    });
+    return list;
+  }
+  async function seriesListYuyu() {
+    let list = readVers(document);
+    if (!list.length) list = readVers(await fetchDoc(location.origin + "/sell/ua/s/new"));
+    return list;
+  }
   async function seriesListHS() {
     const doc = /\/ua\/top/.test(location.pathname) ? document : await fetchDoc(location.origin + "/ua/top");
     const map = new Map();
@@ -189,7 +245,10 @@
     }
     return items;
   }
-  const readSeries = shop === "hs" ? readSeriesHS : readSeriesDora;
+  async function readSeriesYuyu(url, first) {
+    return parseYuyu(first || (await fetchDoc(url))).items;
+  }
+  const readSeries = { yuyu: readSeriesYuyu, hs: readSeriesHS, dora: readSeriesDora }[shop];
 
   /* ---------- 傳送到比價網站 ---------- */
   let win = null;
@@ -204,7 +263,7 @@
   });
   async function send(items, label, final) {
     const batch = Math.random().toString(36).slice(2) + Date.now();
-    const payload = { type: "ua-import", shop, batch, label, final, items };
+    const payload = { type: "ua-import", shop, batch, label, final, items, sets: shop === "yuyu" ? sets : undefined };
     for (let t = 0; t < 30; t++) {
       if (!win || win.closed) return false;
       try { win.postMessage(payload, SITE_ORIGIN); } catch (e) {}
@@ -227,7 +286,7 @@
     if (mode === "all") {
       say("讀取系列清單…");
       try {
-        series = shop === "hs" ? await seriesListHS() : await seriesListDora();
+        series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora }[shop]();
       } catch (e) {
         series = [];
       }
@@ -241,6 +300,7 @@
       const u = new URL(location.href);
       const onLaterPage = u.searchParams.has("pageno") || u.searchParams.has("form110200_mode");
       ["pageno", "form110200_mode", "form110200_params[0]", "form110200_params[1]", "page_now", "page_max"].forEach((k) => u.searchParams.delete(k));
+      if (shop === "yuyu") readVers(document);
       series = [{ label: document.title, url: u.href, here: !onLaterPage }];
     }
 
@@ -299,7 +359,7 @@
   }
 
   /* ---------- 選擇模式 ---------- */
-  const hereCount = (shop === "hs" ? parseHS(document).items : parseDora(document).items).length;
+  const hereCount = { yuyu: parseYuyu, hs: parseHS, dora: parseDora }[shop](document).items.length;
   say(`${SHOP_NAME} 價格匯入` + (hereCount ? `\n這一頁有 ${hereCount} 筆單卡。` : ""));
   button("匯入全部系列", true, () => run("all"));
   if (hereCount) button("只匯入這個系列", false, () => run("here"));

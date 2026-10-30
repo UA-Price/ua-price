@@ -8,7 +8,14 @@
     hs: { name: "Hobby Station", short: "ホビステ" },
     dora: { name: "Dorasuta", short: "ドラスタ" },
   };
+  const SHOP_BASE = {
+    yuyu: "https://yuyu-tei.jp",
+    hs: "https://www.hobbystation-single.jp",
+    dora: "https://dorasuta.jp",
+  };
+  const IMPORT_SHOPS = ["yuyu", "hs", "dora"];
   const SHOP_ORIGINS = {
+    "https://yuyu-tei.jp": "yuyu",
     "https://www.hobbystation-single.jp": "hs",
     "https://dorasuta.jp": "dora",
   };
@@ -47,6 +54,56 @@
       catch (e) { toast("瀏覽器儲存空間已滿，請先清除部分匯入資料"); return false; }
     },
   };
+
+  // 匯入的價格資料量大，存在 IndexedDB（容量比 localStorage 大很多）
+  const idb = {
+    db: null,
+    open() {
+      return this.db || (this.db = new Promise((res, rej) => {
+        const r = indexedDB.open("ua-price", 1);
+        r.onupgradeneeded = () => r.result.createObjectStore("kv");
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      }));
+    },
+    async get(k) {
+      try {
+        const db = await this.open();
+        return await new Promise((res) => {
+          const q = db.transaction("kv").objectStore("kv").get(k);
+          q.onsuccess = () => res(q.result);
+          q.onerror = () => res(undefined);
+        });
+      } catch (e) { return undefined; }
+    },
+    async set(k, v) {
+      try {
+        const db = await this.open();
+        return await new Promise((res) => {
+          const tx = db.transaction("kv", "readwrite");
+          tx.objectStore("kv").put(v, k);
+          tx.oncomplete = () => res(true);
+          tx.onerror = () => res(false);
+        });
+      } catch (e) { return false; }
+    },
+  };
+  async function loadLocalImports() {
+    let v = await idb.get("imports");
+    const old = store.get(LS.imports, null); // 舊版存在 localStorage，搬過來
+    if (old) {
+      v = mergeImportSets(v || {}, old);
+      await idb.set("imports", v);
+      try { localStorage.removeItem(LS.imports); } catch (e) {}
+    }
+    imports = v || {};
+  }
+  // 通知同一台電腦上其他開著的網站分頁：匯入資料變了
+  const channel = "BroadcastChannel" in window ? new BroadcastChannel("ua-price") : null;
+  const saveImports = () => idb.set("imports", imports).then((ok) => {
+    if (!ok) toast("價格資料儲存失敗");
+    else if (channel) channel.postMessage({ type: "imports-changed" });
+  });
 
   let toastTimer;
   function toast(msg, ms = 2600) {
@@ -87,13 +144,13 @@
   let DATA = { updated: null, sets: {}, cards: [] };
   let CARDS = [];          // 合併後的卡片
   let BYKEY = new Map();
-  let imports = store.get(LS.imports, {});   // 這台裝置自己匯入的
+  let imports = {};                           // 這台裝置自己匯入的（啟動時從 IndexedDB 載入）
   let remoteImports = {};                     // GitHub 上共用的（data/imports.json）
 
   // 合併兩份匯入資料：每筆以時間較新的為準；replaceShop 指定的店直接用 b 的
   function mergeImportSets(a, b, replaceShop) {
     const out = {};
-    for (const shop of ["hs", "dora"]) {
+    for (const shop of IMPORT_SHOPS) {
       if (replaceShop === shop) { if (b[shop]) out[shop] = b[shop]; continue; }
       const x = (a && a[shop]) || null, y = (b && b[shop]) || null;
       if (!x && !y) continue;
@@ -102,15 +159,21 @@
         if (!items[k] || (it[4] || 0) >= (items[k][4] || 0)) items[k] = it;
       }
       out[shop] = { items, t: Math.max((x && x.t) || 0, (y && y.t) || 0) };
+      const sets = { ...((x && x.sets) || {}), ...((y && y.sets) || {}) };
+      if (Object.keys(sets).length) out[shop].sets = sets;
     }
     return out;
   }
   const effImports = () => mergeImportSets(remoteImports, imports);
 
   function offerFrom(item, shop) {
-    // item: [price, stock, url, name, time]
-    return { shop, p: item[0], s: item[1], url: item[2], t: item[4] || 0 };
+    // item: [價格, 庫存, 網址路徑, 卡名, 時間, (遊々亭) 稀有度, 系列代碼, 商品編號]
+    let url = item[2] || "";
+    if (url && !/^https?:/.test(url)) url = SHOP_BASE[shop] + url;
+    if (!url && shop === "yuyu" && item[6] && item[7]) url = `https://yuyu-tei.jp/sell/ua/card/${item[6]}/${item[7]}`;
+    return { shop, p: item[0], s: item[1], url, t: item[4] || 0 };
   }
+  const allSets = () => ({ ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
 
   function buildCards() {
     BYKEY = new Map();
@@ -133,10 +196,26 @@
       CARDS.push(c);
     }
     const eff = effImports();
-    for (const shop of ["hs", "dora"]) {
+    for (const shop of IMPORT_SHOPS) {
       const items = (eff[shop] && eff[shop].items) || {};
       for (const [k, item] of Object.entries(items)) {
         let c = BYKEY.get(k);
+        if (shop === "yuyu") {
+          // 遊々亭匯入的資料帶有稀有度、卡圖，當作卡片清單的主要來源
+          const [num, st] = k.split("|");
+          if (!c) {
+            c = { k, num, base: baseOf(num), title: titleOf(num), rar: item[5] || "", stars: +st || 0, name: item[3] || num, set: item[6] || "", id: item[7] || "", offers: {} };
+            BYKEY.set(k, c);
+            CARDS.push(c);
+          } else {
+            if (item[5]) c.rar = item[5];
+            if (item[3]) c.name = item[3];
+            if (item[6] && item[7]) { c.set = item[6]; c.id = item[7]; }
+          }
+          const prev = c.offers.yuyu;
+          if (!prev || (item[4] || 0) >= (prev.t || 0)) c.offers.yuyu = offerFrom(item, "yuyu");
+          continue;
+        }
         if (!c) {
           const [num, st] = k.split("|");
           const stars = +st;
@@ -222,12 +301,13 @@
 
   /* ======================= 找卡 ======================= */
   let filtered = [];
+  let SETNAMES = {};
   let shown = 0;
 
   function fillFilters() {
     const fSet = $("#fSet");
     fSet.length = 1;
-    for (const [code, name] of Object.entries(DATA.sets || {})) fSet.append(el("option", { value: code, text: name }));
+    for (const [code, name] of Object.entries(allSets())) fSet.append(el("option", { value: code, text: name }));
     const rars = [...new Set(CARDS.map((c) => c.rar).filter(Boolean))].sort((a, b) =>
       a.replace(/[★☆]/g, "") === b.replace(/[★☆]/g, "") ? starsOf(a) - starsOf(b) : a < b ? -1 : 1);
     const fRar = $("#fRar");
@@ -236,6 +316,7 @@
   }
 
   function runSearch() {
+    SETNAMES = allSets();
     const q = $("#q").value.trim().toLowerCase();
     const terms = q.split(/\s+/).filter(Boolean);
     const set = $("#fSet").value, rar = $("#fRar").value, onlyStock = $("#fStock").checked, sort = $("#fSort").value;
@@ -305,7 +386,7 @@
       thumbEl(c),
       el("div", {},
         el("div", { class: "c-name", text: c.name }),
-        el("div", { class: "c-meta" }, c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, DATA.sets[c.set] ? " · " + DATA.sets[c.set] : ""),
+        el("div", { class: "c-meta" }, c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, SETNAMES[c.set] ? " · " + SETNAMES[c.set] : ""),
         offersEl(c)),
       el("div", { class: "add-col" },
         el("button", {
@@ -574,9 +655,15 @@
   }
 
   /* ======================= 匯入（書籤） ======================= */
-  function mergeImport(shop, items) {
+  function mergeImport(shop, items, sets) {
     const now = Date.now();
     const box = (imports[shop] = imports[shop] || { items: {} });
+    if (shop === "yuyu" && sets && typeof sets === "object") {
+      box.sets = box.sets || {};
+      for (const [code, name] of Object.entries(sets)) {
+        if (/^[a-z0-9]{2,12}$/.test(code)) box.sets[code] = String(name).slice(0, 60);
+      }
+    }
     let count = 0;
     for (const it of items) {
       if (!Array.isArray(it) || it.length < 5) continue;
@@ -589,12 +676,24 @@
         const better = (stock !== 0 && prev[1] === 0) || ((stock !== 0) === (prev[1] !== 0) && price < prev[0]);
         if (!better) continue;
       }
-      const safeUrl = /^https:\/\/(www\.hobbystation-single\.jp|dorasuta\.jp)\//.test(url) ? url : "";
-      box.items[k] = [price, stock, safeUrl, String(name || "").slice(0, 80), now];
+      // 網址只存路徑部分（省空間），而且只接受該店自己的網址
+      let path = "";
+      try {
+        const u = new URL(url);
+        if (u.origin === SHOP_BASE[shop]) path = u.pathname + u.search;
+      } catch (e) {}
+      const row = [price, stock, path, String(name || "").slice(0, 80), now];
+      if (shop === "yuyu") {
+        const [, , , , , , rar, set, id] = it;
+        const okSet = /^[a-z0-9]{2,12}$/.test(set || "") && /^\d{1,8}$/.test(id || "");
+        if (okSet && path === `/sell/ua/card/${set}/${id}`) row[2] = ""; // 可以從系列代碼和編號還原
+        row.push(String(rar || "").slice(0, 12), okSet ? set : "", okSet ? id : "");
+      }
+      box.items[k] = row;
       count++;
     }
     box.t = now;
-    store.set(LS.imports, imports);
+    saveImports();
     return count;
   }
 
@@ -621,10 +720,11 @@
     const d = e.data;
     if (!shop || !d || d.type !== "ua-import" || d.shop !== shop || typeof d.batch !== "string") return;
     const reply = (m) => { try { e.source && e.source.postMessage(m, e.origin); } catch (err) {} };
+    await importsReady; // 確保先載入舊資料再合併
     if (seenBatches.has(d.batch)) return reply({ type: "ua-done", batch: d.batch });
     seenBatches.add(d.batch);
     if (importSession.shop !== shop) { importSession.shop = shop; importSession.count = 0; }
-    const n = mergeImport(shop, Array.isArray(d.items) ? d.items : []);
+    const n = mergeImport(shop, Array.isArray(d.items) ? d.items : [], d.sets);
     importSession.count += n;
     reply({ type: "ua-done", batch: d.batch, count: n });
     clearHash();
@@ -795,18 +895,13 @@
   function renderSettings() {
     const box = $("#shopStatus");
     box.textContent = "";
-    const yuyuCount = (DATA.cards || []).length;
-    box.append(el("div", { class: "shop-line", style: "--c: var(--yuyu)" },
-      el("div", {}, el("span", { class: "nm", text: "遊々亭（每天自動更新）" }),
-        el("small", { text: DATA.updated ? `${yuyuCount.toLocaleString()} 張・更新於 ${new Date(DATA.updated).toLocaleString()}` : "尚未抓取（請到 GitHub 執行第一次更新）" })),
-      el("span")));
     const eff = effImports();
-    for (const shop of ["hs", "dora"]) {
+    for (const shop of IMPORT_SHOPS) {
       const inf = eff[shop];
       const n = inf ? Object.keys(inf.items || {}).length : 0;
       const canClear = n && (imports[shop] || (gh && gh.token));
       box.append(el("div", { class: "shop-line", style: `--c: var(--${shop})` },
-        el("div", {}, el("span", { class: "nm", text: `${SHOPS[shop].name}（書籤匯入）` }),
+        el("div", {}, el("span", { class: "nm", text: SHOPS[shop].name }),
           el("small", { text: n ? `${n.toLocaleString()} 筆・最後匯入 ${new Date(inf.t).toLocaleString()}` : "還沒有匯入" })),
         canClear ? el("button", {
           class: "btn small ghost danger", text: "清除",
@@ -814,7 +909,7 @@
             const both = gh && gh.token;
             if (!(await confirmBox(`確定清除 ${SHOPS[shop].name} 的匯入價格？${both ? "（GitHub 上的共用資料也會一起清除）" : ""}`))) return;
             delete imports[shop];
-            store.set(LS.imports, imports);
+            await saveImports();
             if (both) {
               const r = await syncToGitHub(shop);
               toast(r.ok ? "已清除，手機稍後也會更新" : r.msg, 4000);
@@ -863,7 +958,7 @@
       }
       decks = [...map.values()];
       // 匯入價格：每筆以較新的為準
-      for (const shop of ["hs", "dora"]) {
+      for (const shop of IMPORT_SHOPS) {
         const src = data.imports && data.imports[shop];
         if (!src) continue;
         const dst = (imports[shop] = imports[shop] || { items: {} });
@@ -871,9 +966,10 @@
           if (!dst.items[k] || (it[4] || 0) > (dst.items[k][4] || 0)) dst.items[k] = it;
         }
         dst.t = Math.max(dst.t || 0, src.t || 0);
+        if (src.sets) dst.sets = { ...(dst.sets || {}), ...src.sets };
       }
       store.set(LS.decks, decks);
-      store.set(LS.imports, imports);
+      await saveImports();
       if (!decks.find((d) => d.id === currentId)) currentId = decks[0].id;
       refreshAll();
       toast("還原完成");
@@ -891,6 +987,7 @@
 
   function refreshAll() {
     buildCards();
+    renderStamp();
     fillFilters();
     runSearch();
     renderDeck();
@@ -1000,42 +1097,53 @@
       if (f) restore(f);
       e.target.value = "";
     });
+    if (channel) {
+      let t;
+      channel.onmessage = (e) => {
+        if (!e.data || e.data.type !== "imports-changed") return;
+        clearTimeout(t);
+        t = setTimeout(async () => { await loadLocalImports(); refreshAll(); }, 500);
+      };
+    }
     // 其他分頁修改了資料時同步
     window.addEventListener("storage", (e) => {
       if (!Object.values(LS).includes(e.key)) return;
       decks = store.get(LS.decks, decks);
-      imports = store.get(LS.imports, imports);
       if (!decks.find((d) => d.id === currentId)) currentId = decks[0].id;
       refreshAll();
     });
   }
 
   /* ======================= 啟動 ======================= */
+  let importsReady = Promise.resolve();
   async function init() {
+    importsReady = loadLocalImports();
     bindEvents();
     renderDeck();
     setupBookmarklet();
     window.addEventListener("message", onImportMessage);
     window.addEventListener("hashchange", () => { if (location.hash === "#import") startImportMode(); });
     if (location.hash === "#import") startImportMode();
-    await loadRemoteImports();
+    await Promise.all([importsReady, loadRemoteImports()]);
     try {
+      // 舊的伺服器抓價資料（目前遊々亭擋伺服器連線，通常是空的）
       const r = await fetch("data/cards.json", { cache: "no-cache" });
-      if (!r.ok) throw new Error(r.status);
-      DATA = await r.json();
-    } catch (e) {
-      $("#notice").hidden = false;
-      $("#notice").textContent = "價格資料載入失敗，請稍後重新整理。";
-    }
+      if (r.ok) DATA = await r.json();
+    } catch (e) { /* 沒有也沒關係 */ }
     DATA.sets = DATA.sets || {};
-    $("#dataStamp").textContent = DATA.updated
-      ? `遊々亭價格更新於 ${new Date(DATA.updated).toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
-      : "遊々亭價格尚未更新";
-    if (!DATA.updated) {
-      $("#notice").hidden = false;
-      $("#notice").textContent = "還沒有遊々亭的價格資料。請到 GitHub 專案的「Actions」頁面，手動執行一次「每日更新遊々亭價格」。";
-    }
     refreshAll();
+  }
+
+  function renderStamp() {
+    const eff = effImports();
+    const times = IMPORT_SHOPS.map((s) => (eff[s] && eff[s].t) || 0);
+    if (DATA.updated) times.push(new Date(DATA.updated).getTime());
+    const latest = Math.max(...times);
+    const fmt = (t) => new Date(t).toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    $("#dataStamp").textContent = latest ? `價格最後更新 ${fmt(latest)}` : "還沒有價格資料";
+    const empty = !CARDS.length;
+    $("#notice").hidden = !empty;
+    if (empty) $("#notice").textContent = "還沒有價格資料。請用電腦到「匯入・設定」分頁設定書籤，先從遊々亭匯入（卡片清單和卡圖也會一起匯入）。";
   }
 
   init();
