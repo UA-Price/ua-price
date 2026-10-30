@@ -14,10 +14,21 @@
     dora: "https://dorasuta.jp",
   };
   const IMPORT_SHOPS = ["yuyu", "hs", "dora"];
+  const DATA_KEYS = [...IMPORT_SHOPS, "colors"]; // 匯入資料的種類：三家價格 + 官方卡表的卡片顏色
+  const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片顏色）" : SHOPS[k].name);
+  const COLOR_LIST = [
+    { key: "赤", label: "紅", hex: "#ff4d5e" },
+    { key: "青", label: "藍", hex: "#3f8cff" },
+    { key: "黄", label: "黃", hex: "#ffd23f" },
+    { key: "緑", label: "綠", hex: "#3ed07a" },
+    { key: "紫", label: "紫", hex: "#a86bff" },
+  ];
+  const COLOR_INFO = Object.fromEntries(COLOR_LIST.map((c) => [c.key, c]));
   const SHOP_ORIGINS = {
     "https://yuyu-tei.jp": "yuyu",
     "https://www.hobbystation-single.jp": "hs",
     "https://dorasuta.jp": "dora",
+    "https://www.unionarena-tcg.com": "colors",
   };
   const OLD_DAYS = 14;          // 匯入超過 14 天的價格標示為「舊」
   const PAGE_SIZE = 50;
@@ -134,7 +145,7 @@
   // 每家分開存（imp:yuyu、imp:hs、imp:dora），三家同時匯入時才不會互相蓋掉
   async function readLocalImports() {
     const v = {};
-    for (const shop of IMPORT_SHOPS) {
+    for (const shop of DATA_KEYS) {
       const x = await idb.get("imp:" + shop);
       if (x && x.items) v[shop] = x;
     }
@@ -145,13 +156,13 @@
     const legacy = await idb.get("imports"); // 前一版整包存在一起
     if (legacy && typeof legacy === "object") {
       v = mergeImportSets(v, legacy);
-      for (const shop of IMPORT_SHOPS) if (v[shop]) await idb.set("imp:" + shop, v[shop]);
+      for (const shop of DATA_KEYS) if (v[shop]) await idb.set("imp:" + shop, v[shop]);
       await idb.set("imports", null);
     }
     const old = store.get(LS.imports, null); // 舊版存在 localStorage，搬過來
     if (old) {
       v = mergeImportSets(v || {}, old);
-      for (const shop of IMPORT_SHOPS) if (v[shop]) await idb.set("imp:" + shop, v[shop]);
+      for (const shop of DATA_KEYS) if (v[shop]) await idb.set("imp:" + shop, v[shop]);
       try { localStorage.removeItem(LS.imports); } catch (e) {}
     }
     imports = v || {};
@@ -159,7 +170,7 @@
   // 通知同一台電腦上其他開著的網站分頁：匯入資料變了
   const channel = "BroadcastChannel" in window ? new BroadcastChannel("ua-price") : null;
   async function saveImports(only) {
-    const shops = only ? [only] : IMPORT_SHOPS;
+    const shops = only ? [only] : DATA_KEYS;
     let ok = true;
     for (const shop of shops) ok = (await idb.set("imp:" + shop, imports[shop] || null)) && ok;
     if (!ok) toast("價格資料儲存失敗");
@@ -212,13 +223,14 @@
   // 合併兩份匯入資料：每筆以時間較新的為準；replaceShop 指定的店直接用 b 的
   function mergeImportSets(a, b, replaceShop) {
     const out = {};
-    for (const shop of IMPORT_SHOPS) {
+    for (const shop of DATA_KEYS) {
       if (replaceShop === shop) { if (b[shop]) out[shop] = b[shop]; continue; }
       const x = (a && a[shop]) || null, y = (b && b[shop]) || null;
       if (!x && !y) continue;
+      const ti = shop === "colors" ? 1 : 4; // 每筆資料記錄時間的位置
       const items = { ...((x && x.items) || {}) };
       for (const [k, it] of Object.entries((y && y.items) || {})) {
-        if (!items[k] || (it[4] || 0) >= (items[k][4] || 0)) items[k] = it;
+        if (!items[k] || (it[ti] || 0) >= (items[k][ti] || 0)) items[k] = it;
       }
       out[shop] = { items, t: Math.max((x && x.t) || 0, (y && y.t) || 0) };
       const sets = { ...((x && x.sets) || {}), ...((y && y.sets) || {}) };
@@ -292,7 +304,10 @@
       }
     }
     VARIANTS = new Map();
+    const colorItems = (eff.colors && eff.colors.items) || {};
     for (const c of CARDS) {
+      const ci = colorItems[c.num];
+      c.color = ci && COLOR_INFO[ci[0]] ? ci[0] : "";
       c.search = (c.name + " " + c.num + " " + c.rar).toLowerCase();
       c.best = bestOffer(c);
       const v = VARIANTS.get(c.num) || [];
@@ -369,6 +384,28 @@
 
   /* ======================= 找卡 ======================= */
   let filtered = [];
+  const selectedColors = new Set();
+  function renderColorChips() {
+    const box = $("#fColors");
+    box.textContent = "";
+    const has = CARDS.some((c) => c.color);
+    box.append(el("span", { class: "cc-label", text: "顏色" }));
+    for (const c of COLOR_LIST) {
+      box.append(el("button", {
+        class: "cc" + (selectedColors.has(c.key) ? " on" : ""), style: `--cc: ${c.hex}`, type: "button",
+        "aria-pressed": selectedColors.has(c.key) ? "true" : "false", disabled: !has || null,
+        title: has ? `只看${c.label}色（可以多選）` : "還沒匯入卡片顏色",
+        onclick: () => {
+          selectedColors.has(c.key) ? selectedColors.delete(c.key) : selectedColors.add(c.key);
+          renderColorChips();
+          runSearch();
+        },
+      }, c.label));
+    }
+    if (!has) box.append(el("span", { class: "cc-hint", text: "（要先到「匯入・設定」匯入卡片顏色）" }));
+    else if (selectedColors.size) box.append(el("button", { class: "cc-clear", type: "button", onclick: () => { selectedColors.clear(); renderColorChips(); runSearch(); } }, "清除"));
+  }
+  const colorDot = (c) => (c.color ? el("span", { class: "cdot", style: `--cc: ${COLOR_INFO[c.color].hex}`, title: COLOR_INFO[c.color].label + "色" }) : null);
   let SETNAMES = {};
   let shown = 0;
 
@@ -388,10 +425,12 @@
     const q = $("#q").value.trim().toLowerCase();
     const terms = q.split(/\s+/).filter(Boolean);
     const set = $("#fSet").value, rar = $("#fRar").value, onlyStock = $("#fStock").checked, sort = $("#fSort").value;
+    const colors = selectedColors;
     filtered = CARDS.filter((c) => {
       if (set && c.set !== set) return false;
       if (rar && c.rar !== rar) return false;
       if (onlyStock && !(c.best && c.best.s !== 0)) return false;
+      if (colors.size && !colors.has(c.color)) return false;
       for (const t of terms) if (!c.search.includes(t)) return false;
       return true;
     });
@@ -464,7 +503,9 @@
     $("#cmName").textContent = c.name;
     const meta = $("#cmMeta");
     meta.textContent = "";
-    meta.append(c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, SETNAMES[c.set] ? el("span", { class: "cm-set", text: SETNAMES[c.set] }) : "");
+    meta.append(
+      c.color ? el("span", { class: "cm-color", style: `--cc: ${COLOR_INFO[c.color].hex}`, text: COLOR_INFO[c.color].label + "色" }) : "",
+      c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, SETNAMES[c.set] ? el("span", { class: "cm-set", text: SETNAMES[c.set] }) : "");
     // 三家價格（由上到下）
     const shops = $("#cmShops");
     shops.textContent = "";
@@ -528,7 +569,7 @@
       thumbEl(c),
       el("div", {},
         el("div", { class: "c-name", text: c.name }),
-        el("div", { class: "c-meta" }, c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, SETNAMES[c.set] ? " · " + SETNAMES[c.set] : ""),
+        el("div", { class: "c-meta" }, colorDot(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, SETNAMES[c.set] ? " · " + SETNAMES[c.set] : ""),
         offersEl(c)),
       el("div", { class: "add-col" },
         el("button", {
@@ -637,7 +678,7 @@
         thumbEl(c),
         el("div", {},
           el("div", { class: "c-name", text: c.name }),
-          el("div", { class: "c-meta" }, c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num),
+          el("div", { class: "c-meta" }, colorDot(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num),
           el("div", { class: "sub" },
             b ? [`最便宜：${SHOPS[b.shop].short} ${yen(b.p)} × ${q} = `, el("b", { text: yen(b.p * q) })] : "目前沒有價格",
             stockShort ? el("span", { class: "short", text: b.s === 0 ? "（售完）" : `（只剩 ${b.s} 張）` }) : null),
@@ -803,7 +844,21 @@
   }
 
   /* ======================= 匯入（書籤） ======================= */
+  function mergeColors(items) {
+    const now = Date.now();
+    const box = (imports.colors = imports.colors || { items: {} });
+    let count = 0;
+    for (const it of items) {
+      if (!Array.isArray(it) || !NUM_RE.test(String(it[0])) || !COLOR_INFO[it[1]]) continue;
+      box.items[it[0]] = [it[1], now];
+      count++;
+    }
+    box.t = now;
+    saveImports("colors");
+    return count;
+  }
   function mergeImport(shop, items, sets) {
+    if (shop === "colors") return mergeColors(items);
     const now = Date.now();
     const box = (imports[shop] = imports[shop] || { items: {} });
     if (shop === "yuyu" && sets && typeof sets === "object") {
@@ -880,22 +935,22 @@
     refreshTimer = setTimeout(refreshAll, 400);
 
     if (!d.final) {
-      const lines = Object.entries(importCounts).map(([s, c]) => `${SHOPS[s].name}：已匯入 ${c.toLocaleString()} 筆`);
-      showImportOverlay(`正在接收價格…\n${lines.join("\n")}`);
+      const lines = Object.entries(importCounts).map(([s, c]) => `${SOURCE_NAME(s)}：已匯入 ${c.toLocaleString()} 筆`);
+      showImportOverlay(`正在接收資料…\n${lines.join("\n")}`);
       return;
     }
     const total = importCounts[shop] || 0;
     delete importCounts[shop];
     switchView("settings");
-    let msg = `已從 ${SHOPS[shop].name} 匯入 ${total.toLocaleString()} 筆價格`;
+    let msg = `已從 ${SOURCE_NAME(shop)} 匯入 ${total.toLocaleString()} 筆${shop === "colors" ? "卡片顏色" : "價格"}`;
     if (gh && gh.token) {
       showImportOverlay(msg + "\n同步到 GitHub 中…");
       const r = await syncToGitHub();
       msg += "\n" + r.msg;
       reply({ type: "ua-synced", ok: r.ok, msg: r.msg });
     } else {
-      msg += "\n（尚未設定 GitHub 同步，價格只存在這台電腦）";
-      reply({ type: "ua-synced", ok: false, msg: "尚未設定 GitHub 同步，價格只存在這台電腦" });
+      msg += "\n（尚未設定 GitHub 同步，資料只存在這台電腦）";
+      reply({ type: "ua-synced", ok: false, msg: "尚未設定 GitHub 同步，資料只存在這台電腦" });
     }
     showImportOverlay(msg, false);
     hideImportOverlay(4000);
@@ -1048,18 +1103,18 @@
     const box = $("#shopStatus");
     box.textContent = "";
     const eff = effImports();
-    for (const shop of IMPORT_SHOPS) {
+    for (const shop of DATA_KEYS) {
       const inf = eff[shop];
       const n = inf ? Object.keys(inf.items || {}).length : 0;
       const canClear = n && (imports[shop] || (gh && gh.token));
-      box.append(el("div", { class: "shop-line", style: `--c: var(--${shop})` },
-        el("div", {}, el("span", { class: "nm", text: SHOPS[shop].name }),
+      box.append(el("div", { class: "shop-line" + (shop === "colors" ? " colors" : ""), style: `--c: var(--${shop})` },
+        el("div", {}, el("span", { class: "nm", text: SOURCE_NAME(shop) }),
           el("small", { text: n ? `${n.toLocaleString()} 筆・最後匯入 ${new Date(inf.t).toLocaleString()}` : "還沒有匯入" })),
         canClear ? el("button", {
           class: "btn small ghost danger", text: "清除",
           onclick: async () => {
             const both = gh && gh.token;
-            if (!(await confirmBox(`確定清除 ${SHOPS[shop].name} 的匯入價格？${both ? "（GitHub 上的共用資料也會一起清除）" : ""}`))) return;
+            if (!(await confirmBox(`確定清除 ${SOURCE_NAME(shop)} 的匯入資料？${both ? "（GitHub 上的共用資料也會一起清除）" : ""}`))) return;
             delete imports[shop];
             await saveImports(shop);
             if (both) {
@@ -1110,12 +1165,13 @@
       }
       decks = [...map.values()];
       // 匯入價格：每筆以較新的為準
-      for (const shop of IMPORT_SHOPS) {
+      for (const shop of DATA_KEYS) {
         const src = data.imports && data.imports[shop];
         if (!src) continue;
+        const ti = shop === "colors" ? 1 : 4;
         const dst = (imports[shop] = imports[shop] || { items: {} });
         for (const [k, it] of Object.entries(src.items || {})) {
-          if (!dst.items[k] || (it[4] || 0) > (dst.items[k][4] || 0)) dst.items[k] = it;
+          if (!dst.items[k] || (it[ti] || 0) > (dst.items[k][ti] || 0)) dst.items[k] = it;
         }
         dst.t = Math.max(dst.t || 0, src.t || 0);
         if (src.sets) dst.sets = { ...(dst.sets || {}), ...src.sets };
@@ -1139,6 +1195,7 @@
 
   function refreshAll() {
     buildCards();
+    renderColorChips();
     renderStamp();
     renderModal();
     fillFilters();

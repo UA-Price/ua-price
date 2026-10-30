@@ -1,5 +1,6 @@
 /*
-  一鍵匯入書籤（在 Hobby Station 或 Dorasuta 的網站上按下）
+  一鍵匯入書籤（在遊々亭、Hobby Station、Dorasuta 或官方卡表的網站上按下）
+  - 在官方卡表按下：匯入每張卡的顏色
   - 「匯入全部系列」：在你的瀏覽器裡用正常速度逐一讀取每個系列的商品列表
   - 「只匯入這個系列」：只讀目前這個搜尋結果
   讀到的價格會分批送到比價網站。這個檔案會被網站讀進來轉成書籤，__SITE__ 會換成網站網址。
@@ -11,10 +12,12 @@
   const SITE = "__SITE__";
   const SITE_ORIGIN = new URL(SITE).origin;
   const host = location.host;
-  const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora" : null;
-  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "Dorasuta" }[shop];
-  // 每頁之間的間隔：一般 2.5 秒；Dorasuta 用 Cloudflare，對大量瀏覽比較敏感，放慢到 4 秒
-  const DELAY = shop === "dora" ? 4000 : 2500;
+  const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
+    : host.includes("unionarena-tcg.com") ? "colors" : null;
+  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "Dorasuta", colors: "官方卡表（卡片顏色）" }[shop];
+  // 每頁之間的間隔：一般 2.5 秒；Dorasuta 用 Cloudflare，對大量瀏覽比較敏感，放慢到 4 秒；官方卡表每次查詢很小，1.2 秒
+  const DELAY = shop === "dora" ? 4000 : shop === "colors" ? 1200 : 2500;
+  const COLORS = ["赤", "青", "黄", "緑", "紫"];
   const sets = {}; // 遊々亭的系列代碼 → 系列名稱
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const STAR = /[★☆]/g;
@@ -51,7 +54,7 @@
   const finish = (ms) => setTimeout(() => { box.remove(); window.__uaImporterRunning = false; }, ms);
 
   if (!shop) {
-    say("請在遊々亭、Hobby Station 或 Dorasuta 的網站上使用這個書籤。");
+    say("請在遊々亭、Hobby Station、Dorasuta 或官方卡表的網站上使用這個書籤。");
     return finish(5000);
   }
 
@@ -237,6 +240,39 @@
     return [...map.values()];
   }
 
+  /* ---------- 官方卡表：每個作品依 5 種顏色各查一次 ---------- */
+  async function seriesListColors() {
+    let doc = document;
+    if (!doc.querySelector('select[name="selectTitle"]')) doc = await fetchDoc(location.origin + "/jp/cardlist/");
+    const sel = doc.querySelector('select[name="selectTitle"]');
+    if (!sel) return [];
+    return [...sel.options].map((o) => o.getAttribute("value") || "").filter(Boolean)
+      .filter((v, i, a) => a.indexOf(v) === i).map((title) => ({ label: title, url: title }));
+  }
+  async function readSeriesColors(title) {
+    const items = [];
+    for (let i = 0; i < COLORS.length; i++) {
+      if (cancelled) break;
+      const fd = new FormData();
+      fd.append("selectTitle", title);
+      fd.append("color[]", COLORS[i]);
+      const html = await fetch(location.origin + "/jp/cardlist/index.php?search=true", { method: "POST", body: fd, credentials: "include" }).then((r) => r.text());
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const seen = new Set();
+      doc.querySelectorAll("img").forEach((img) => {
+        const src = img.getAttribute("data-src") || img.getAttribute("src") || "";
+        const m = src.match(/cardlist\/card\/([A-Z0-9]+)_([A-Z0-9]+-\d+-(?:AP)?\d+)(?:_p\d+)?\.png/);
+        if (!m) return;
+        const num = m[1] + "/" + m[2];
+        if (seen.has(num)) return;
+        seen.add(num);
+        items.push([num, COLORS[i]]);
+      });
+      if (i < COLORS.length - 1) await sleep(DELAY);
+    }
+    return items;
+  }
+
   /* ---------- 讀取一個系列的所有頁面 ---------- */
   async function readSeriesHS(url, first) {
     const items = [];
@@ -280,7 +316,7 @@
   async function readSeriesYuyu(url, first) {
     return parseYuyu(first || (await fetchDoc(url))).items;
   }
-  const readSeries = { yuyu: readSeriesYuyu, hs: readSeriesHS, dora: readSeriesDora }[shop];
+  const readSeries = { yuyu: readSeriesYuyu, hs: readSeriesHS, dora: readSeriesDora, colors: readSeriesColors }[shop];
 
   /* ---------- 傳送到比價網站 ---------- */
   let win = null;
@@ -319,7 +355,7 @@
     if (mode === "all") {
       say("讀取系列清單…");
       try {
-        series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora }[shop]();
+        series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, colors: seriesListColors }[shop]();
       } catch (e) {
         series = [];
       }
@@ -340,7 +376,7 @@
     let failedSeries = 0;
     for (let i = 0; i < series.length && !cancelled; i++) {
       const s = series[i];
-      say(`${SHOP_NAME}：第 ${i + 1} / ${series.length} 個系列\n${s.label}\n已讀到 ${all.length} 筆`);
+      say(`${SHOP_NAME}：第 ${i + 1} / ${series.length} 個${shop === "colors" ? "作品" : "系列"}\n${s.label}\n已讀到 ${all.length} 筆`);
       progress(i / series.length);
       let items = [];
       try {
@@ -393,6 +429,12 @@
   }
 
   /* ---------- 選擇模式 ---------- */
+  if (shop === "colors") {
+    say("官方卡表：匯入每張卡的顏色\n每個作品依 5 種顏色各查一次，大約 5～6 分鐘。\n卡片顏色不會變，有新作品時再按一次就好。");
+    button("匯入卡片顏色", true, () => run("all"));
+    button("取消", false, () => finish(0));
+    return;
+  }
   const hereCount = { yuyu: parseYuyu, hs: parseHS, dora: parseDora }[shop](document).items.length;
   say(`${SHOP_NAME} 價格匯入` + (hereCount ? `\n這一頁有 ${hereCount} 筆單卡。` : ""));
   button("匯入全部系列", true, () => run("all"));

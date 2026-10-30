@@ -438,3 +438,27 @@ body.modal-open { overflow: hidden; }
   .cm-image { grid-row: 1 / 4; grid-column: 1; }
   .cm-deck { grid-row: 4; }
 }
+
+/* ---------- 顏色篩選 ---------- */
+:root { --colors: #e6b8ff; }
+.color-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.cc-label { font-size: 13px; color: var(--ink-3); margin-right: 2px; }
+.cc {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px 5px 9px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--line-strong); background: rgba(8, 14, 52, .85); color: var(--ink-2); font-weight: 700; font-size: 13px;
+}
+.cc::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--cc); box-shadow: 0 0 6px var(--cc); }
+.cc:hover:not(:disabled) { border-color: var(--cc); }
+.cc.on { color: #fff; border-color: var(--cc); background: color-mix(in srgb, var(--cc) 28%, rgba(8, 14, 52, .9)); box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 45%, transparent); }
+.cc:disabled { opacity: .4; cursor: default; }
+.cc-hint { font-size: 12px; color: var(--ink-3); }
+.cc-clear { border: 0; background: none; color: var(--accent-2); font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px 6px; }
+.cdot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px;
+  background: var(--cc); box-shadow: 0 0 6px var(--cc);
+}
+.cm-color {
+  display: inline-flex; align-items: center; gap: 5px; padding: 0 8px 0 6px; border-radius: 4px; font-weight: 700; color: #fff;
+  background: color-mix(in srgb, var(--cc) 35%, rgba(5, 8, 34, .9)); border: 1px solid var(--cc);
+}
+.cm-color::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--cc); }
