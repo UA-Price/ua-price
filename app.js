@@ -39,7 +39,20 @@
     return n;
   };
   const yen = (n) => "¥" + Math.round(n).toLocaleString("ja-JP");
-  const imgUrl = (c) => (c.set && c.id ? `https://card.yuyu-tei.jp/ua/100_140/${c.set}/${c.id}.jpg` : "");
+  const imgUrl = (c) => (c.set && c.id && !c.noimg ? `https://card.yuyu-tei.jp/ua/100_140/${c.set}/${c.id}.jpg` : "");
+  // 卡圖來源：先用遊々亭的小圖；遊々亭沒有圖時改用官方卡表。
+  // 官方的平行卡編號（_p1、_p2…）跟星星數不一定一致，所以從星星數往下找最接近的那張。
+  const OFFICIAL_IMG = "https://www.unionarena-tcg.com/jp/images/cardlist/card/";
+  function imgCandidates(c) {
+    const list = [];
+    const y = imgUrl(c);
+    if (y) list.push(y);
+    if (/^[A-Z0-9]+\/[A-Z0-9]+-\d+-(AP)?\d+$/.test(c.num)) {
+      const file = c.num.replace("/", "_");
+      for (let k = Math.min(c.stars || 0, 4); k >= 0; k--) list.push(OFFICIAL_IMG + file + (k ? `_p${k}` : "") + ".png");
+    }
+    return list;
+  }
   const yuyuUrl = (c) => `https://yuyu-tei.jp/sell/ua/card/${c.set}/${c.id}`;
   const starsOf = (s) => (String(s || "").match(/[★☆]/g) || []).length;
   const baseOf = (num) => String(num).split("/").pop();
@@ -88,22 +101,41 @@
       } catch (e) { return false; }
     },
   };
+  // 每家分開存（imp:yuyu、imp:hs、imp:dora），三家同時匯入時才不會互相蓋掉
+  async function readLocalImports() {
+    const v = {};
+    for (const shop of IMPORT_SHOPS) {
+      const x = await idb.get("imp:" + shop);
+      if (x && x.items) v[shop] = x;
+    }
+    return v;
+  }
   async function loadLocalImports() {
-    let v = await idb.get("imports");
+    let v = await readLocalImports();
+    const legacy = await idb.get("imports"); // 前一版整包存在一起
+    if (legacy && typeof legacy === "object") {
+      v = mergeImportSets(v, legacy);
+      for (const shop of IMPORT_SHOPS) if (v[shop]) await idb.set("imp:" + shop, v[shop]);
+      await idb.set("imports", null);
+    }
     const old = store.get(LS.imports, null); // 舊版存在 localStorage，搬過來
     if (old) {
       v = mergeImportSets(v || {}, old);
-      await idb.set("imports", v);
+      for (const shop of IMPORT_SHOPS) if (v[shop]) await idb.set("imp:" + shop, v[shop]);
       try { localStorage.removeItem(LS.imports); } catch (e) {}
     }
     imports = v || {};
   }
   // 通知同一台電腦上其他開著的網站分頁：匯入資料變了
   const channel = "BroadcastChannel" in window ? new BroadcastChannel("ua-price") : null;
-  const saveImports = () => idb.set("imports", imports).then((ok) => {
+  async function saveImports(only) {
+    const shops = only ? [only] : IMPORT_SHOPS;
+    let ok = true;
+    for (const shop of shops) ok = (await idb.set("imp:" + shop, imports[shop] || null)) && ok;
     if (!ok) toast("價格資料儲存失敗");
-    else if (channel) channel.postMessage({ type: "imports-changed" });
-  });
+    else if (channel) channel.postMessage({ type: "imports-changed", shops, cleared: shops.filter((x) => !imports[x]) });
+    return ok;
+  }
 
   let toastTimer;
   function toast(msg, ms = 2600) {
@@ -204,13 +236,13 @@
           // 遊々亭匯入的資料帶有稀有度、卡圖，當作卡片清單的主要來源
           const [num, st] = k.split("|");
           if (!c) {
-            c = { k, num, base: baseOf(num), title: titleOf(num), rar: item[5] || "", stars: +st || 0, name: item[3] || num, set: item[6] || "", id: item[7] || "", offers: {} };
+            c = { k, num, base: baseOf(num), title: titleOf(num), rar: item[5] || "", stars: +st || 0, name: item[3] || num, set: item[6] || "", id: item[7] || "", noimg: !!item[8], offers: {} };
             BYKEY.set(k, c);
             CARDS.push(c);
           } else {
             if (item[5]) c.rar = item[5];
             if (item[3]) c.name = item[3];
-            if (item[6] && item[7]) { c.set = item[6]; c.id = item[7]; }
+            if (item[6] && item[7]) { c.set = item[6]; c.id = item[7]; c.noimg = !!item[8]; }
           }
           const prev = c.offers.yuyu;
           if (!prev || (item[4] || 0) >= (prev.t || 0)) c.offers.yuyu = offerFrom(item, "yuyu");
@@ -348,10 +380,15 @@
   }
 
   function thumbEl(c, cls = "thumb") {
-    const src = imgUrl(c);
-    if (!src) return el("div", { class: cls + " none", text: "無圖" });
-    const img = el("img", { class: cls, src, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
-    img.addEventListener("error", () => img.replaceWith(el("div", { class: cls + " none", text: "無圖" })), { once: true });
+    const srcs = imgCandidates(c);
+    if (!srcs.length) return el("div", { class: cls + " none", text: "無圖" });
+    let i = 0;
+    const img = el("img", { class: cls, src: srcs[0], alt: "", loading: "lazy", referrerpolicy: "no-referrer", decoding: "async" });
+    img.addEventListener("error", () => {
+      i++;
+      if (i < srcs.length) img.src = srcs[i];
+      else img.replaceWith(el("div", { class: cls + " none", text: "無圖" }));
+    });
     return img;
   }
 
@@ -684,22 +721,22 @@
       } catch (e) {}
       const row = [price, stock, path, String(name || "").slice(0, 80), now];
       if (shop === "yuyu") {
-        const [, , , , , , rar, set, id] = it;
+        const [, , , , , , rar, set, id] = it; // it[9]：遊々亭沒有圖
         const okSet = /^[a-z0-9]{2,12}$/.test(set || "") && /^\d{1,8}$/.test(id || "");
         if (okSet && path === `/sell/ua/card/${set}/${id}`) row[2] = ""; // 可以從系列代碼和編號還原
-        row.push(String(rar || "").slice(0, 12), okSet ? set : "", okSet ? id : "");
+        row.push(String(rar || "").slice(0, 12), okSet ? set : "", okSet ? id : "", it[9] ? 1 : 0);
       }
       box.items[k] = row;
       count++;
     }
     box.t = now;
-    saveImports();
+    saveImports(shop);
     return count;
   }
 
   /* 書籤送來的資料：一律接收（不管網址有沒有 #import），分批確認、最後一批完成後同步到 GitHub */
   const seenBatches = new Set();
-  const importSession = { shop: null, count: 0 };
+  const importCounts = {}; // 每家這一輪匯入了幾筆（三家可以同時進行）
   let refreshTimer, overlayTimer;
   function showImportOverlay(text, spinning = true) {
     $("#importOverlay").hidden = false;
@@ -723,9 +760,8 @@
     await importsReady; // 確保先載入舊資料再合併
     if (seenBatches.has(d.batch)) return reply({ type: "ua-done", batch: d.batch });
     seenBatches.add(d.batch);
-    if (importSession.shop !== shop) { importSession.shop = shop; importSession.count = 0; }
     const n = mergeImport(shop, Array.isArray(d.items) ? d.items : [], d.sets);
-    importSession.count += n;
+    importCounts[shop] = (importCounts[shop] || 0) + n;
     reply({ type: "ua-done", batch: d.batch, count: n });
     clearHash();
 
@@ -733,11 +769,12 @@
     refreshTimer = setTimeout(refreshAll, 400);
 
     if (!d.final) {
-      showImportOverlay(`正在接收 ${SHOPS[shop].name} 的價格…\n已匯入 ${importSession.count.toLocaleString()} 筆\n${d.label || ""}`);
+      const lines = Object.entries(importCounts).map(([s, c]) => `${SHOPS[s].name}：已匯入 ${c.toLocaleString()} 筆`);
+      showImportOverlay(`正在接收價格…\n${lines.join("\n")}`);
       return;
     }
-    const total = importSession.count;
-    importSession.shop = null;
+    const total = importCounts[shop] || 0;
+    delete importCounts[shop];
     switchView("settings");
     let msg = `已從 ${SHOPS[shop].name} 匯入 ${total.toLocaleString()} 筆價格`;
     if (gh && gh.token) {
@@ -805,12 +842,18 @@
     return info.default_branch || "main";
   }
 
-  let syncing = false;
+  // 同步排隊進行：三家同時完成時，一家一家依序同步，不會跳過
+  let syncRunning = null;
   async function syncToGitHub(replaceShop) {
+    while (syncRunning) { try { await syncRunning; } catch (e) {} }
+    syncRunning = doSync(replaceShop);
+    try { return await syncRunning; } finally { syncRunning = null; }
+  }
+  async function doSync(replaceShop) {
     if (!gh || !gh.token) return { ok: false, msg: "尚未設定 GitHub 同步" };
-    if (syncing) return { ok: false, msg: "上一次同步還在進行中" };
-    syncing = true;
     try {
+      // 把同一台電腦其他分頁剛存的資料也一起帶上
+      imports = mergeImportSets(imports, await readLocalImports());
       for (let attempt = 1; attempt <= 3; attempt++) {
         // 1. 取得 GitHub 上目前的檔案（sha 用來避免覆蓋別人剛寫入的內容）
         let sha = null, remote = {};
@@ -846,8 +889,6 @@
       return { ok: false, msg: "同步失敗，請稍後在「匯入・設定」按「立即同步」" };
     } catch (e) {
       return { ok: false, msg: "連不到 GitHub，請確認網路後按「立即同步」" };
-    } finally {
-      syncing = false;
     }
   }
 
@@ -909,7 +950,7 @@
             const both = gh && gh.token;
             if (!(await confirmBox(`確定清除 ${SHOPS[shop].name} 的匯入價格？${both ? "（GitHub 上的共用資料也會一起清除）" : ""}`))) return;
             delete imports[shop];
-            await saveImports();
+            await saveImports(shop);
             if (both) {
               const r = await syncToGitHub(shop);
               toast(r.ok ? "已清除，手機稍後也會更新" : r.msg, 4000);
@@ -1102,7 +1143,13 @@
       channel.onmessage = (e) => {
         if (!e.data || e.data.type !== "imports-changed") return;
         clearTimeout(t);
-        t = setTimeout(async () => { await loadLocalImports(); refreshAll(); }, 500);
+        const cleared = e.data.cleared || [];
+        for (const shop of cleared) delete imports[shop];
+        t = setTimeout(async () => {
+          // 用「合併」而不是「取代」，這個分頁正在接收的資料才不會被舊版本蓋掉
+          imports = mergeImportSets(imports, await readLocalImports());
+          refreshAll();
+        }, 500);
       };
     }
     // 其他分頁修改了資料時同步
