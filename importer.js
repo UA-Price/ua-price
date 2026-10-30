@@ -9,8 +9,10 @@
   if (window.__uaImporterRunning) return;
   window.__uaImporterRunning = true;
 
+  // 由「查價之境」擴充功能啟動時：自動開始，資料透過擴充功能轉送給網站（不另開視窗）
+  const EXT = !!(window.__UA_AUTO && window.__UA_AUTO.ext);
   const SITE = "__SITE__";
-  const SITE_ORIGIN = new URL(SITE).origin;
+  const SITE_ORIGIN = EXT ? location.origin : new URL(SITE).origin;
   const host = location.host;
   const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
     : host.includes("unionarena-tcg.com") ? "colors" : null;
@@ -39,7 +41,11 @@
   btns.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:8px";
   box.append(msg, bar, btns);
   document.body.appendChild(box);
-  const say = (t) => { msg.textContent = t; };
+  const say = (t) => {
+    msg.textContent = t;
+    if (EXT) window.postMessage({ __ua_progress: t }, location.origin);
+  };
+  const reportDone = (t, ok) => { if (EXT) window.postMessage({ __ua_progress: t, done: true, ok: !!ok }, location.origin); };
   const progress = (r) => { bar.style.display = "block"; fill.style.width = Math.round(r * 100) + "%"; };
   const button = (label, primary, fn) => {
     const b = document.createElement("button");
@@ -52,6 +58,22 @@
     return b;
   };
   const finish = (ms) => setTimeout(() => { box.remove(); window.__uaImporterRunning = false; }, ms);
+
+  // 擴充功能模式：請轉送程式把資料交給網站，等網站回覆
+  function extCall(payload, timeout = 30000) {
+    return new Promise((resolve) => {
+      const id = "r" + Math.random().toString(36).slice(2) + Date.now();
+      const onReply = (e) => {
+        if (e.source !== window || !e.data || e.data.__ua_reply !== id) return;
+        window.removeEventListener("message", onReply);
+        clearTimeout(timer);
+        resolve(e.data.resp || null);
+      };
+      const timer = setTimeout(() => { window.removeEventListener("message", onReply); resolve(null); }, timeout);
+      window.addEventListener("message", onReply);
+      window.postMessage({ __ua_req: id, payload }, location.origin);
+    });
+  }
 
   if (!shop) {
     say("請在遊々亭、Hobby Station、Dorasuta 或官方卡表的網站上使用這個書籤。");
@@ -324,6 +346,11 @@
   const acks = new Set();
   let syncResult = null;
   window.addEventListener("message", (e) => {
+    if (EXT && e.source === window && e.data) {
+      if (e.data.__ua_synced) syncResult = e.data.__ua_synced;
+      if (e.data.__ua_stop) { cancelled = true; say("停止中…（會把已讀到的先送出）"); }
+      return;
+    }
     if (e.origin !== SITE_ORIGIN || !e.data) return;
     if (e.data.type === "ua-ready") siteReady = true;
     if (e.data.type === "ua-done") acks.add(e.data.batch);
@@ -332,6 +359,14 @@
   async function send(items, label, final) {
     const batch = Math.random().toString(36).slice(2) + Date.now();
     const payload = { type: "ua-import", shop, batch, label, final, items, sets: shop === "yuyu" ? sets : undefined };
+    if (EXT) {
+      for (let t = 0; t < 3; t++) {
+        const resp = await extCall(payload);
+        if (resp && resp.type === "ua-done") return true;
+        await sleep(2000);
+      }
+      return false;
+    }
     for (let t = 0; t < 30; t++) {
       if (!win || win.closed) return false;
       try { win.postMessage(payload, SITE_ORIGIN); } catch (e) {}
@@ -349,7 +384,7 @@
 
   async function run(mode) {
     btns.textContent = "";
-    win = window.open(SITE + "#import", "ua_price_import");
+    if (!EXT) win = window.open(SITE + "#import", "ua_price_import");
     button("停止", false, () => { cancelled = true; say("停止中…（會把已讀到的先送出）"); });
     let series;
     if (mode === "all") {
@@ -361,6 +396,7 @@
       }
       if (!series.length) {
         say("找不到系列清單。請先打開網站首頁或任一系列頁面，再按一次書籤。");
+        reportDone("找不到系列清單（網站可能改版或還在確認連線）", false);
         btns.textContent = "";
         return finish(8000);
       }
@@ -400,6 +436,11 @@
     say(`讀取完成，共 ${all.length} 筆，傳送中…`);
     btns.textContent = "";
     const ok = await send(unsent, "完成", true);
+    if (!ok && EXT) {
+      say(`讀到 ${all.length} 筆，但沒辦法送到查價之境網站。請確認網站分頁還開著，再按一次擴充功能的「開始匯入」。`);
+      reportDone(`讀到 ${all.length} 筆，但送不到網站`, false);
+      return;
+    }
     if (!ok) {
       say(`讀到 ${all.length} 筆，但比價網站沒有回應（視窗可能被關掉或被擋）。按下面的按鈕重新傳送。`);
       button("重新傳送", true, async () => {
@@ -423,12 +464,17 @@
     for (let t = 0; t < 40 && !syncResult; t++) await sleep(500);
     if (syncResult) text += "\n" + syncResult.msg;
     say(text);
+    reportDone(text, !stopReason && !failedSeries);
     btns.textContent = "";
     button("關閉", false, () => finish(0));
     finish(15000);
   }
 
   /* ---------- 選擇模式 ---------- */
+  if (EXT) {
+    run("all"); // 擴充功能模式：直接開始，不用選
+    return;
+  }
   if (shop === "colors") {
     say("官方卡表：匯入每張卡的顏色\n每個作品依 5 種顏色各查一次，大約 5～6 分鐘。\n卡片顏色不會變，有新作品時再按一次就好。");
     button("匯入卡片顏色", true, () => run("all"));

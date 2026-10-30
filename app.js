@@ -1021,10 +1021,23 @@ p{margin:0;font-size:12px;color:#8593c7}
   }
 
   async function onImportMessage(e) {
+    // 擴充功能轉送來的資料（從這個網站分頁自己送進來，裡面標明是哪一家）
+    if (e.source === window && e.data && e.data.__ua_ext_import) {
+      const d = e.data.__ua_ext_import;
+      const shop = d && Object.values(SHOP_ORIGINS).includes(d.shop) ? d.shop : null;
+      if (!shop) return;
+      const reply = (m) => window.postMessage({ __ua_ext_out: true, shop, batch: d.batch, m }, location.origin);
+      return handleImport(shop, d, reply);
+    }
     const shop = SHOP_ORIGINS[e.origin];
     const d = e.data;
-    if (!shop || !d || d.type !== "ua-import" || d.shop !== shop || typeof d.batch !== "string") return;
+    if (!shop || !d || d.type !== "ua-import" || d.shop !== shop) return;
     const reply = (m) => { try { e.source && e.source.postMessage(m, e.origin); } catch (err) {} };
+    return handleImport(shop, d, reply);
+  }
+
+  async function handleImport(shop, d, reply) {
+    if (!d || d.type !== "ua-import" || typeof d.batch !== "string") return;
     await importsReady; // 確保先載入舊資料再合併
     if (seenBatches.has(d.batch)) return reply({ type: "ua-done", batch: d.batch });
     seenBatches.add(d.batch);
