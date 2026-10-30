@@ -34,7 +34,8 @@
   const PAGE_SIZE = 50;
   const DECK_SIZE = 50;
   const MAX_COPIES = 4;
-  const LS = { decks: "ua.decks", current: "ua.current", imports: "ua.imports", gh: "ua.gh" };
+  const LS = { decks: "ua.decks", current: "ua.current", imports: "ua.imports", gh: "ua.gh", mode: "ua.totalMode" };
+  const TOTAL_MODES = [["low", "全部取最低"], ["high", "全部取最高"], ["shop", "各店分開算"]];
 
   const $ = (s) => document.querySelector(s);
   const el = (tag, attrs = {}, ...kids) => {
@@ -317,6 +318,14 @@
     for (const v of VARIANTS.values()) v.sort((a, b) => a - b);
   }
 
+  // 最貴的店（有庫存的優先；全部售完時才看售完的價格）
+  function worstOffer(c) {
+    const all = Object.values(c.offers).filter((o) => o && o.p > 0);
+    if (!all.length) return null;
+    const inStock = all.filter((o) => o.s !== 0);
+    const pool = inStock.length ? inStock : all;
+    return pool.reduce((a, b) => (b.p > a.p ? b : a));
+  }
   function bestOffer(c) {
     const all = Object.values(c.offers).filter((o) => o && o.p > 0);
     if (!all.length) return null;
@@ -339,6 +348,8 @@
   };
 
   /* ======================= 卡組 ======================= */
+  let totalMode = store.get(LS.mode, "low");
+  if (!TOTAL_MODES.some(([m]) => m === totalMode)) totalMode = "low";
   let decks = store.get(LS.decks, []);
   let currentId = store.get(LS.current, null);
   if (!decks.length) decks = [newDeck("我的卡組")];
@@ -610,21 +621,29 @@
       titles.add(c.title);
     }
     const over = Object.entries(perBase).filter(([, n]) => n > MAX_COPIES);
-    let best = 0, noPrice = 0, short = 0;
-    const shopTotals = {};
-    for (const s of Object.keys(SHOPS)) shopTotals[s] = { sum: 0, miss: 0 };
+    let best = 0, worst = 0, noPrice = 0, short = 0;
+    const shopTotals = {}; // 只算有庫存的
+    const shopAll = {};    // 整副都在這家買：有價格的都算（含售完），另外記沒資料、售完幾種
+    for (const s of Object.keys(SHOPS)) { shopTotals[s] = { sum: 0, miss: 0 }; shopAll[s] = { sum: 0, none: 0, sold: 0 }; }
     for (const { c, q } of entries) {
       if (c.best) {
         best += c.best.p * q;
         if (c.best.s === 0 || (c.best.s > 0 && c.best.s < 99 && c.best.s < q)) short++;
       } else noPrice++;
+      const w = worstOffer(c);
+      if (w) worst += w.p * q;
       for (const s of Object.keys(SHOPS)) {
         const o = c.offers[s];
         if (o && o.s !== 0) shopTotals[s].sum += o.p * q;
         else shopTotals[s].miss += 1;
+        if (!o) shopAll[s].none += 1;
+        else {
+          shopAll[s].sum += o.p * q;
+          if (o.s === 0) shopAll[s].sold += 1;
+        }
       }
     }
-    return { main, ap, over, titles: [...titles], best, noPrice, short, shopTotals };
+    return { main, ap, over, titles: [...titles], best, worst, noPrice, short, shopTotals, shopAll };
   }
 
   function renderDeck() {
@@ -651,17 +670,47 @@
     // 價格
     const tot = $("#totals");
     tot.textContent = "";
-    tot.append(
-      el("div", { class: "lbl", text: "每張挑最便宜的店，湊齊整副約" }),
-      el("div", { class: "big", text: yen(a.best) }),
-      el("div", { class: "shops" }, Object.entries(SHOPS).map(([s, info]) =>
-        el("div", { class: "shop" }, info.short,
-          el("b", { text: a.shopTotals[s].sum ? yen(a.shopTotals[s].sum) : "—" }),
-          a.shopTotals[s].miss && entries.length ? el("span", { class: "miss", text: `缺 ${a.shopTotals[s].miss} 種` }) : "整副買得到"))),
-    );
+    tot.append(el("div", { class: "tmode", role: "tablist" }, TOTAL_MODES.map(([m, label]) =>
+      el("button", {
+        type: "button", class: "tm" + (totalMode === m ? " on" : ""), role: "tab", "aria-selected": totalMode === m ? "true" : "false",
+        onclick: () => { totalMode = m; store.set(LS.mode, m); renderDeck(); },
+      }, label))));
+    const shopBoxes = () => el("div", { class: "shops" }, Object.entries(SHOPS).map(([s, info]) =>
+      el("div", { class: "shop" }, info.short,
+        el("b", { text: a.shopTotals[s].sum ? yen(a.shopTotals[s].sum) : "—" }),
+        a.shopTotals[s].miss && entries.length ? el("span", { class: "miss", text: `缺 ${a.shopTotals[s].miss} 種` }) : "整副買得到")));
+    if (totalMode === "high") {
+      tot.append(
+        el("div", { class: "lbl", text: "每張挑最貴的店，最多大約要" }),
+        el("div", { class: "big", text: yen(a.worst) }),
+        el("div", { class: "sublbl", text: `最便宜的組合是 ${yen(a.best)}，差 ${yen(a.worst - a.best)}` }),
+        shopBoxes());
+    } else if (totalMode === "shop") {
+      const complete = Object.keys(SHOPS).filter((s) => !a.shopAll[s].none && a.shopAll[s].sum > 0);
+      const cheapestShop = complete.reduce((x, s) => (!x || a.shopAll[s].sum < a.shopAll[x].sum ? s : x), null);
+      tot.append(
+        el("div", { class: "lbl", text: "整副都在同一家買，各要多少" }),
+        el("div", { class: "shop-rows" }, Object.entries(SHOPS).map(([s, info]) => {
+          const t = a.shopAll[s];
+          const notes = [];
+          if (t.none) notes.push(`${t.none} 種沒有資料（沒算進去）`);
+          if (t.sold) notes.push(`${t.sold} 種售完`);
+          return el("div", { class: `shop-row ${s}${s === cheapestShop ? " cheapest" : ""}` },
+            el("div", { class: "sr-head" },
+              el("span", { class: "sr-name", text: info.name }),
+              s === cheapestShop ? el("span", { class: "cm-best", text: complete.length === 1 ? "只有這家有齊" : "有齊的裡面最便宜" }) : null),
+            el("div", { class: "sr-price", text: t.sum ? yen(t.sum) : "—" }),
+            el("div", { class: "sr-note" + (notes.length ? " warn" : ""), text: notes.length ? notes.join("・") : "整副都有價格" }));
+        })));
+    } else {
+      tot.append(
+        el("div", { class: "lbl", text: "每張挑最便宜的店，湊齊整副約" }),
+        el("div", { class: "big", text: yen(a.best) }),
+        shopBoxes());
+    }
     const warns = [];
     if (a.noPrice) warns.push(`${a.noPrice} 種卡目前沒有任何價格`);
-    if (a.short) warns.push(`${a.short} 種卡最便宜的那家售完或庫存不足`);
+    if (a.short && totalMode === "low") warns.push(`${a.short} 種卡最便宜的那家售完或庫存不足`);
     if (warns.length) tot.append(el("div", { class: "warnline", text: "⚠ " + warns.join("；") }));
     tot.hidden = !entries.length;
 
@@ -672,7 +721,7 @@
     for (const { c, q } of entries) {
       const g = isAP(c.num) ? "AP 卡" : "主卡組";
       if (g !== lastGroup && entries.some((e) => isAP(e.c.num))) { ul.append(el("li", { class: "group-title", text: g })); lastGroup = g; }
-      const b = c.best;
+      const b = totalMode === "high" ? worstOffer(c) : c.best;
       const stockShort = b && (b.s === 0 || (b.s > 0 && b.s < 99 && b.s < q));
       ul.append(el("li", { class: "card-row", "data-k": c.k, tabindex: "0" },
         thumbEl(c),
@@ -680,7 +729,7 @@
           el("div", { class: "c-name", text: c.name }),
           el("div", { class: "c-meta" }, colorDot(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num),
           el("div", { class: "sub" },
-            b ? [`最便宜：${SHOPS[b.shop].short} ${yen(b.p)} × ${q} = `, el("b", { text: yen(b.p * q) })] : "目前沒有價格",
+            b ? [`${totalMode === "high" ? "最貴" : "最便宜"}：${SHOPS[b.shop].short} ${yen(b.p)} × ${q} = `, el("b", { text: yen(b.p * q) })] : "目前沒有價格",
             stockShort ? el("span", { class: "short", text: b.s === 0 ? "（售完）" : `（只剩 ${b.s} 張）` }) : null),
           offersEl(c)),
         el("div", { class: "qty" },
@@ -722,6 +771,16 @@
   }
 
   /* ======================= 匯出 ======================= */
+  // 依目前選的算法，產生合計的文字
+  function totalLines(a) {
+    if (totalMode === "high") return [`合計（每張取最高價）：${yen(a.worst)}`];
+    if (totalMode === "shop") return Object.entries(SHOPS).map(([s, info]) => {
+      const t = a.shopAll[s];
+      const notes = [t.none ? `缺 ${t.none} 種` : "", t.sold ? `售完 ${t.sold} 種` : ""].filter(Boolean).join("、");
+      return `${info.name} 整副：${t.sum ? yen(t.sum) : "—"}${notes ? `（${notes}）` : ""}`;
+    });
+    return [`合計（每張挑最便宜）：${yen(a.best)}`];
+  }
   function deckText() {
     const entries = deckEntries();
     const a = analyze(entries);
@@ -730,7 +789,7 @@
       const b = c.best;
       lines.push(`${c.num} ${c.name}${c.rar ? " " + c.rar : ""} ×${q}` + (b ? `　${SHOPS[b.shop].short} ${yen(b.p)}` : "　無價格"));
     }
-    lines.push(`合計（每張挑最便宜）：${yen(a.best)}`);
+    lines.push(...totalLines(a));
     return lines.join("\n");
   }
 
@@ -797,7 +856,8 @@ p{margin:0;font-size:12px;color:#8593c7}
     // 手機螢幕窄，一排 5 張圖才不會太小；電腦一排最多 10 張
     const maxCols = window.innerWidth < 700 ? 5 : 10;
     const cols = Math.min(maxCols, Math.max(Math.min(5, maxCols), entries.length));
-    const W = 100, H = 140, G = 8, PAD = 20, HEAD = 70, FOOT = 50;
+    const footLines = totalLines(a);
+    const W = 100, H = 140, G = 8, PAD = 20, HEAD = 70, FOOT = 30 + footLines.length * 22;
     const rows = Math.ceil(entries.length / cols);
     const cw = PAD * 2 + cols * W + (cols - 1) * G;
     const ch = HEAD + rows * (H + G) - G + FOOT + PAD;
@@ -837,10 +897,10 @@ p{margin:0;font-size:12px;color:#8593c7}
         g.fillText(String(e.q), x + W - 14, y + H - 13);
         g.textAlign = "left"; g.textBaseline = "top";
       });
-      g.fillStyle = "#ffffff"; g.font = "bold 18px sans-serif";
-      g.fillText(`合計約 ${yen(a.best)}（每張挑最便宜的店）`, PAD, ch - FOOT);
+      g.fillStyle = "#ffffff";
+      footLines.forEach((t, i) => { g.font = (footLines.length > 1 ? "bold 15px" : "bold 18px") + " sans-serif"; g.fillText(t, PAD, ch - FOOT + i * 22); });
       g.fillStyle = "#7f7c8a"; g.font = "12px sans-serif";
-      g.fillText(new Date().toLocaleDateString(), PAD, ch - FOOT + 26);
+      g.fillText(new Date().toLocaleDateString(), PAD, ch - FOOT + footLines.length * 22 + 4);
       return cv;
     };
 
