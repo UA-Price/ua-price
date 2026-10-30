@@ -154,11 +154,41 @@
     return { items: out, pageMax: Math.min(+(pm && pm.value) || 1, 30) };
   }
 
+  const isCheckPage = (html) => /安全な接続を確認中|Just a moment/.test(String(html).slice(0, 3000));
+
+  // 網站要求「確認連線」時：在隱藏的小視窗裡正常打開那一頁，讓網站自己的確認程式在你的瀏覽器裡跑完
+  function loadInFrame(url) {
+    return new Promise((resolve, reject) => {
+      const f = document.createElement("iframe");
+      f.style.cssText = "position:fixed;left:-10000px;top:0;width:1000px;height:800px;border:0;visibility:hidden";
+      document.body.appendChild(f);
+      const started = Date.now();
+      const timer = setInterval(() => {
+        let html = "";
+        try {
+          const d = f.contentDocument;
+          if (d && d.readyState !== "loading" && d.body) html = d.documentElement.outerHTML;
+        } catch (e) { /* 還在載入 */ }
+        if (html && !isCheckPage(html) && html.length > 5000) {
+          clearInterval(timer);
+          f.remove();
+          resolve(new DOMParser().parseFromString(html, "text/html"));
+        } else if (Date.now() - started > 45000) {
+          clearInterval(timer);
+          f.remove();
+          reject(new Error("check"));
+        }
+      }, 800);
+      f.src = url;
+    });
+  }
+
   async function fetchDoc(url) {
     const r = await fetch(url, { credentials: "include" });
     const html = await r.text();
-    if (/安全な接続を確認中|Just a moment/.test(html.slice(0, 3000))) throw new Error("check");
-    return new DOMParser().parseFromString(html, "text/html");
+    if (!isCheckPage(html)) return new DOMParser().parseFromString(html, "text/html");
+    say(msg.textContent.split("\n")[0] + "\n網站正在確認連線，請稍候…");
+    return loadInFrame(url); // 確認通過後，之後的頁面就能照常讀取
   }
 
   /* ---------- 系列清單 ---------- */
@@ -275,6 +305,7 @@
 
   /* ---------- 主流程 ---------- */
   let cancelled = false;
+  let stopReason = "";
   const all = [];       // 全部讀到的資料（補送用）
   let unsent = [];      // 還沒成功送出的資料
 
@@ -315,7 +346,7 @@
       } catch (e) {
         failedSeries++;
         if (e.message === "check") {
-          say("網站要求重新確認連線。請重新整理這一頁，等它正常顯示後再按一次書籤。");
+          stopReason = "網站一直停在「確認連線」畫面。請重新整理這一頁，等它正常顯示後再按一次書籤。";
           cancelled = true;
           break;
         }
@@ -349,6 +380,7 @@
 
   async function afterSent(failedSeries) {
     let text = `匯入完成：${all.length} 筆` + (failedSeries ? `（${failedSeries} 個系列讀取失敗）` : "") + (cancelled ? "（中途停止）" : "");
+    if (stopReason) text += "\n⚠ " + stopReason;
     say(text + "\n等待同步…");
     for (let t = 0; t < 40 && !syncResult; t++) await sleep(500);
     if (syncResult) text += "\n" + syncResult.msg;
