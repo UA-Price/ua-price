@@ -6,7 +6,7 @@
   const SHOPS = {
     yuyu: { name: "遊々亭", short: "遊々亭" },
     hs: { name: "Hobby Station", short: "ホビステ" },
-    dora: { name: "Dorasuta", short: "ドラスタ" },
+    dora: { name: "ドラゴンスター", short: "ドラスタ" },
   };
   const SHOP_BASE = {
     yuyu: "https://yuyu-tei.jp",
@@ -1200,9 +1200,23 @@ p{margin:0;font-size:12px;color:#8593c7}
   }
 
   async function saveGitHub() {
-    const owner = $("#ghOwner").value.trim(), repo = $("#ghRepo").value.trim();
-    const token = $("#ghToken").value.trim() || (gh && gh.token) || "";
+    // 全形英數字轉半形、去掉空白和看不見的字元（中文輸入法或複製時常混進來）
+    const clean = (v) => String(v || "")
+      .replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+      .replace(/[\s\u200B-\u200D\u2060\uFEFF\u3000]/g, "");
+    const owner = clean($("#ghOwner").value), repo = clean($("#ghRepo").value);
+    const typed = clean($("#ghToken").value);
+    const token = typed || (gh && gh.token) || "";
     if (!owner || !repo || !token) return toast("請填好帳號、專案名稱和金鑰");
+    const badField = [["帳號", owner], ["專案名稱", repo], ["金鑰", token]].find(([, v]) => !/^[\x21-\x7E]+$/.test(v));
+    if (badField) {
+      $("#ghState").textContent = `❌ ${badField[0]}裡有中文或全形字。請把輸入法切成英文，重新複製貼上（只要 github_pat_ 開頭的那一串）。`;
+      return;
+    }
+    if (typed && !/^(github_pat_|ghp_)[A-Za-z0-9_]+$/.test(typed)) {
+      $("#ghState").textContent = "❌ 這看起來不是 GitHub 金鑰。金鑰應該是 github_pat_ 開頭、只有英文數字和底線的一長串。";
+      return;
+    }
     $("#ghState").textContent = "測試連線中…";
     try {
       const branch = await testGitHub({ owner, repo, token });

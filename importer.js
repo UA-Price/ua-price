@@ -1,5 +1,5 @@
 /*
-  一鍵匯入書籤（在遊々亭、Hobby Station、Dorasuta 或官方卡表的網站上按下）
+  一鍵匯入書籤（在遊々亭、Hobby Station、ドラゴンスター 或官方卡表的網站上按下）
   - 在官方卡表按下：匯入每張卡的顏色
   - 「匯入全部系列」：在你的瀏覽器裡用正常速度逐一讀取每個系列的商品列表
   - 「只匯入這個系列」：只讀目前這個搜尋結果
@@ -16,9 +16,9 @@
   const host = location.host;
   const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
     : host.includes("unionarena-tcg.com") ? "colors" : null;
-  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "Dorasuta", colors: "官方卡表（卡片顏色）" }[shop];
+  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", colors: "官方卡表（卡片顏色）" }[shop];
   // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
-  // 遊々亭、Hobby Station 5 秒；Dorasuta 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
+  // 遊々亭、Hobby Station 5 秒；ドラゴンスター 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
   const DELAY = shop === "dora" ? 10000 : shop === "colors" ? 2000 : 5000;
   const COLORS = ["赤", "青", "黄", "緑", "紫"];
   const sets = {}; // 遊々亭的系列代碼 → 系列名稱
@@ -97,7 +97,7 @@
   }
 
   if (!shop) {
-    say("請在遊々亭、Hobby Station、Dorasuta 或官方卡表的網站上使用這個書籤。");
+    say("請在遊々亭、Hobby Station、ドラゴンスター 或官方卡表的網站上使用這個書籤。");
     return finish(5000);
   }
 
@@ -172,7 +172,7 @@
     return d ? d.textContent.trim() : "";
   };
 
-  /* ---------- 解析：Dorasuta ---------- */
+  /* ---------- 解析：ドラゴンスター ---------- */
   function parseDora(doc) {
     const out = [];
     doc.querySelectorAll("div.element").forEach((el) => {
