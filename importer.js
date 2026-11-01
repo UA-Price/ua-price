@@ -1,6 +1,6 @@
 /*
   一鍵匯入書籤（在遊々亭、Hobby Station、ドラゴンスター 或官方卡表的網站上按下）
-  - 在官方卡表按下：匯入每張卡的顏色
+  - 在官方卡表按下：匯入每張卡的顏色、必要エナジー、消費 AP（預設只抓還沒抓過的作品）
   - 「匯入全部系列」：在你的瀏覽器裡用正常速度逐一讀取每個系列的商品列表
   - 「只匯入這個系列」：只讀目前這個搜尋結果
   讀到的價格會分批送到比價網站。這個檔案會被網站讀進來轉成書籤，__SITE__ 會換成網站網址。
@@ -16,7 +16,7 @@
   const host = location.host;
   const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
     : host.includes("unionarena-tcg.com") ? "colors" : null;
-  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", colors: "官方卡表（卡片顏色）" }[shop];
+  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", colors: "官方卡表（卡片資料）" }[shop];
   // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
   // 遊々亭、Hobby Station 5 秒；ドラゴンスター 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
   const DELAY = shop === "dora" ? 10000 : shop === "colors" ? 2000 : 5000;
@@ -286,37 +286,57 @@
     return [...map.values()];
   }
 
-  /* ---------- 官方卡表：每個作品依 5 種顏色各查一次 ---------- */
+  /* ---------- 官方卡表：每個作品查顏色（5 次）、必要エナジー（逐一查到全部對上）、消費 AP（2、3 各一次） ---------- */
   async function seriesListColors() {
     let doc = document;
     if (!doc.querySelector('select[name="selectTitle"]')) doc = await fetchDoc(location.origin + "/jp/cardlist/");
     const sel = doc.querySelector('select[name="selectTitle"]');
     if (!sel) return [];
     return [...sel.options].map((o) => o.getAttribute("value") || "").filter(Boolean)
-      .filter((v, i, a) => a.indexOf(v) === i).map((title) => ({ label: title, url: title }));
+      .filter((v, i, a) => a.indexOf(v) === i).map((title) => ({ label: title, url: title, title }));
+  }
+  // 查一次官方卡表，回傳查到的卡號（同一張卡的平行版本算同一張）
+  async function officialQuery(title, pairs) {
+    const fd = new FormData();
+    fd.append("selectTitle", title);
+    for (const [k, v] of pairs) fd.append(k, v);
+    const html = await fetch(location.origin + "/jp/cardlist/index.php?search=true", { method: "POST", body: fd, credentials: "include" }).then((r) => r.text());
+    if (isDenied(html)) throw new Error("denied");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const nums = new Set();
+    doc.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("data-src") || img.getAttribute("src") || "";
+      const m = src.match(/cardlist\/card\/([A-Z0-9]+)_([A-Z0-9]+-\d+-(?:AP)?\d+)(?:_p\d+)?\.png/);
+      if (m) nums.add(m[1] + "/" + m[2]);
+    });
+    return nums;
   }
   async function readSeriesColors(title) {
-    const items = [];
-    for (let i = 0; i < COLORS.length; i++) {
-      if (cancelled) break;
-      const fd = new FormData();
-      fd.append("selectTitle", title);
-      fd.append("color[]", COLORS[i]);
-      const html = await fetch(location.origin + "/jp/cardlist/index.php?search=true", { method: "POST", body: fd, credentials: "include" }).then((r) => r.text());
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const seen = new Set();
-      doc.querySelectorAll("img").forEach((img) => {
-        const src = img.getAttribute("data-src") || img.getAttribute("src") || "";
-        const m = src.match(/cardlist\/card\/([A-Z0-9]+)_([A-Z0-9]+-\d+-(?:AP)?\d+)(?:_p\d+)?\.png/);
-        if (!m) return;
-        const num = m[1] + "/" + m[2];
-        if (seen.has(num)) return;
-        seen.add(num);
-        items.push([num, COLORS[i]]);
-      });
-      if (i < COLORS.length - 1) await sleep(DELAY);
+    const color = {}, energy = {}, ap = {};
+    // 1. 顏色
+    for (let i = 0; i < COLORS.length && !cancelled; i++) {
+      if (i) await sleep(DELAY);
+      for (const n of await officialQuery(title, [["color[]", COLORS[i]]])) if (!color[n]) color[n] = COLORS[i];
     }
-    return items;
+    const nums = Object.keys(color);
+    // 2. 必要エナジー：從 0 開始一個一個查，全部的卡都對上就停
+    let assigned = 0;
+    for (let e = 0; e <= 15 && assigned < nums.length && !cancelled; e++) {
+      await sleep(DELAY);
+      for (const n of await officialQuery(title, [["needEnergy_min", String(e)], ["needEnergy_max", String(e)]])) {
+        if (color[n] && energy[n] == null) { energy[n] = e; assigned++; }
+      }
+    }
+    // 3. 消費 AP：查 2 和 3，其餘是 1
+    if (nums.length) {
+      for (const a of [2, 3]) {
+        if (cancelled) break;
+        await sleep(DELAY);
+        for (const n of await officialQuery(title, [["ap[]", String(a)]])) if (color[n]) ap[n] = a;
+      }
+    }
+    const done = !cancelled;
+    return nums.map((n) => [n, color[n], energy[n] == null ? null : energy[n], done ? ap[n] || 1 : ap[n] || null]);
   }
 
   /* ---------- 讀取一個系列的所有頁面 ---------- */
@@ -367,7 +387,7 @@
   /* ---------- 傳送到比價網站 ---------- */
   let win = null;
   let siteReady = false;
-  const acks = new Set();
+  const acks = new Map(); // batch → 網站回覆的內容
   let syncResult = null;
   window.addEventListener("message", (e) => {
     if (EXT && e.source === window && e.data) {
@@ -377,27 +397,40 @@
     }
     if (e.origin !== SITE_ORIGIN || !e.data) return;
     if (e.data.type === "ua-ready") siteReady = true;
-    if (e.data.type === "ua-done") acks.add(e.data.batch);
+    if (e.data.type === "ua-done") acks.set(e.data.batch, e.data);
     if (e.data.type === "ua-synced") syncResult = e.data;
   });
-  async function send(items, label, final) {
-    const batch = Math.random().toString(36).slice(2) + Date.now();
-    const payload = { type: "ua-import", shop, batch, label, final, items, sets: shop === "yuyu" ? sets : undefined };
+  // 送一個請求給網站，回傳網站的回覆（失敗時回傳 null）
+  async function request(payload) {
     if (EXT) {
       for (let t = 0; t < 3; t++) {
         const resp = await extCall(payload);
-        if (resp && resp.type === "ua-done") return true;
+        if (resp && resp.type === "ua-done") return resp;
         await sleep(2000);
       }
-      return false;
+      return null;
     }
     for (let t = 0; t < 30; t++) {
-      if (!win || win.closed) return false;
+      if (!win || win.closed) return null;
       try { win.postMessage(payload, SITE_ORIGIN); } catch (e) {}
       await sleep(siteReady ? 300 : 700);
-      if (acks.has(batch)) return true;
+      if (acks.has(payload.batch)) return acks.get(payload.batch);
     }
-    return false;
+    return null;
+  }
+  const newBatch = () => Math.random().toString(36).slice(2) + Date.now();
+  let doneTitles = []; // 官方卡表：這一批已經完整抓完的作品
+  async function send(items, label, final) {
+    const payload = { type: "ua-import", shop, batch: newBatch(), label, final, items, sets: shop === "yuyu" ? sets : undefined };
+    if (shop === "colors") payload.titles = doneTitles.slice();
+    const resp = await request(payload);
+    if (resp && shop === "colors") doneTitles = [];
+    return !!resp;
+  }
+  // 問網站：官方卡表哪些作品已經抓過了
+  async function askKnownTitles() {
+    const resp = await request({ type: "ua-query", shop, batch: newBatch() });
+    return resp && Array.isArray(resp.known) ? resp.known : null;
   }
 
   /* ---------- 主流程 ---------- */
@@ -411,7 +444,7 @@
     if (!EXT) win = window.open(SITE + "#import", "ua_price_import");
     button("停止", false, () => { cancelled = true; say("停止中…（會把已讀到的先送出）"); });
     let series;
-    if (mode === "all") {
+    if (mode === "all" || mode === "new") {
       say("讀取系列清單…");
       let denied = /Access denied|Attention Required|blocked/i.test(document.title);
       try {
@@ -432,6 +465,24 @@
         btns.textContent = "";
         return finish(8000);
       }
+      if (mode === "new") {
+        say("確認哪些作品已經抓過…");
+        const known = await askKnownTitles();
+        if (known === null) {
+          say("沒辦法跟查價之境網站確認，改成全部重新抓。");
+          await sleep(1500);
+        } else {
+          series = series.filter((x) => !known.includes(x.title));
+          if (!series.length) {
+            const t = "全部作品都已經抓過了，沒有新作品，不用更新。";
+            say(t);
+            reportDone(t, true);
+            btns.textContent = "";
+            button("關閉", false, () => finish(0));
+            return finish(10000);
+          }
+        }
+      }
     } else {
       // 如果目前在第 2 頁以後，改從第 1 頁開始讀
       const u = new URL(location.href);
@@ -449,6 +500,7 @@
       let items = [];
       try {
         items = await readSeries(s.url, s.here ? document : null);
+        if (shop === "colors" && !cancelled) doneTitles.push(s.title); // 這個作品完整抓完了
       } catch (e) {
         failedSeries++;
         if (e.message === "check") {
@@ -464,7 +516,7 @@
       }
       all.push(...items);
       unsent.push(...items);
-      if (unsent.length && (await send(unsent, s.label, false))) unsent = [];
+      if ((unsent.length || doneTitles.length) && (await send(unsent, s.label, false))) unsent = [];
       if (i < series.length - 1) await sleep(DELAY);
     }
     progress(1);
@@ -509,12 +561,13 @@
 
   /* ---------- 選擇模式 ---------- */
   if (EXT) {
-    run("all"); // 擴充功能模式：直接開始，不用選
+    run(shop === "colors" ? "new" : "all"); // 擴充功能模式：直接開始（官方卡表只抓新作品）
     return;
   }
   if (shop === "colors") {
-    say("官方卡表：匯入每張卡的顏色\n每個作品依 5 種顏色各查一次，大約 5～6 分鐘。\n卡片顏色不會變，有新作品時再按一次就好。");
-    button("匯入卡片顏色", true, () => run("all"));
+    say("官方卡表：匯入每張卡的顏色、必要エナジー、消費 AP\n只抓新作品：只抓還沒抓過的作品（第一次會全部抓，約 30 分鐘；之後通常不到 1 分鐘）。\n全部重新抓：58 個作品約 30 分鐘。");
+    button("只抓新作品", true, () => run("new"));
+    button("全部重新抓", false, () => run("all"));
     button("取消", false, () => finish(0));
     return;
   }

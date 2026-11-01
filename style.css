@@ -494,3 +494,18 @@ body.modal-open { overflow: hidden; }
 /* ---------- 管理用電腦才顯示的東西 ---------- */
 body:not(.admin) .admin-only { display: none !important; }
 body.admin .viewer-only { display: none !important; }
+
+/* ---------- 費用篩選與顯示 ---------- */
+.cost-chip { padding: 5px 11px; min-width: 38px; justify-content: center; }
+.cost-chip::before { display: none; }
+.cost-chip.on { --cc: #7fb3e8; }
+.ap-label { margin-left: 8px; }
+.cost {
+  display: inline-flex; align-items: center; gap: 3px; margin-right: 5px; padding: 0 7px; border-radius: 99px;
+  font-weight: 800; color: #fff; background: rgba(127, 179, 232, .22); border: 1px solid rgba(127, 179, 232, .55);
+}
+.cost small { font-size: 10px; font-weight: 700; color: var(--warn); }
+.cm-cost {
+  display: inline-block; padding: 0 8px; border-radius: 4px; font-weight: 700; color: #fff;
+  background: rgba(127, 179, 232, .2); border: 1px solid rgba(127, 179, 232, .5);
+}

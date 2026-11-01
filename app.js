@@ -15,7 +15,9 @@
   };
   const IMPORT_SHOPS = ["yuyu", "hs", "dora"];
   const DATA_KEYS = [...IMPORT_SHOPS, "colors"]; // 匯入資料的種類：三家價格 + 官方卡表的卡片顏色
-  const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片顏色）" : SHOPS[k].name);
+  const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片資料）" : SHOPS[k].name);
+  const ENERGY_CHIPS = [0, 1, 2, 3, 4, 5, 6, 7]; // 7 代表 7 以上
+  const AP_CHIPS = [1, 2, 3];
   const COLOR_LIST = [
     { key: "赤", label: "紅", hex: "#ff4d5e" },
     { key: "青", label: "藍", hex: "#3f8cff" },
@@ -236,6 +238,8 @@
       out[shop] = { items, t: Math.max((x && x.t) || 0, (y && y.t) || 0) };
       const sets = { ...((x && x.sets) || {}), ...((y && y.sets) || {}) };
       if (Object.keys(sets).length) out[shop].sets = sets;
+      const titles = { ...((x && x.titles) || {}), ...((y && y.titles) || {}) }; // 官方卡表已抓完的作品
+      if (Object.keys(titles).length) out[shop].titles = titles;
     }
     return out;
   }
@@ -309,6 +313,8 @@
     for (const c of CARDS) {
       const ci = colorItems[c.num];
       c.color = ci && COLOR_INFO[ci[0]] ? ci[0] : "";
+      c.energy = ci && Number.isInteger(ci[2]) ? ci[2] : null; // 必要エナジー
+      c.ap = ci && Number.isInteger(ci[3]) ? ci[3] : null;     // 消費 AP
       c.search = (c.name + " " + c.num + " " + c.rar).toLowerCase();
       c.best = bestOffer(c);
       const v = VARIANTS.get(c.num) || [];
@@ -416,6 +422,28 @@
     if (!has) box.append(el("span", { class: "cc-hint", text: "（要先到「匯入・設定」匯入卡片顏色）" }));
     else if (selectedColors.size) box.append(el("button", { class: "cc-clear", type: "button", onclick: () => { selectedColors.clear(); renderColorChips(); runSearch(); } }, "清除"));
   }
+  const selectedEnergy = new Set(), selectedAP = new Set();
+  function renderCostChips() {
+    const box = $("#fCost");
+    box.textContent = "";
+    const has = CARDS.some((c) => c.energy != null);
+    const chip = (set, v, label, title) => el("button", {
+      class: "cc cost-chip" + (set.has(v) ? " on" : ""), type: "button", "aria-pressed": set.has(v) ? "true" : "false",
+      disabled: !has || null, title: has ? title : "還沒匯入官方卡表的卡片資料",
+      onclick: () => { set.has(v) ? set.delete(v) : set.add(v); renderCostChips(); runSearch(); },
+    }, label);
+    box.append(el("span", { class: "cc-label", text: "費用" }));
+    ENERGY_CHIPS.forEach((v) => box.append(chip(selectedEnergy, v, v === 7 ? "7+" : String(v), `必要エナジー ${v === 7 ? "7 以上" : v}`)));
+    box.append(el("span", { class: "cc-label ap-label", text: "AP" }));
+    AP_CHIPS.forEach((v) => box.append(chip(selectedAP, v, String(v), `消費 AP ${v}`)));
+    if (!has) box.append(el("span", { class: "cc-hint", text: "（要先匯入官方卡表的卡片資料）" }));
+    else if (selectedEnergy.size || selectedAP.size) box.append(el("button", {
+      class: "cc-clear", type: "button", onclick: () => { selectedEnergy.clear(); selectedAP.clear(); renderCostChips(); runSearch(); },
+    }, "清除"));
+  }
+  const costBadge = (c) => (c.energy != null
+    ? el("span", { class: "cost", title: `必要エナジー ${c.energy}${c.ap ? `・消費 AP ${c.ap}` : ""}` }, String(c.energy), c.ap > 1 ? el("small", { text: `AP${c.ap}` }) : null)
+    : null);
   const colorDot = (c) => (c.color ? el("span", { class: "cdot", style: `--cc: ${COLOR_INFO[c.color].hex}`, title: COLOR_INFO[c.color].label + "色" }) : null);
   let SETNAMES = {};
   let shown = 0;
@@ -442,11 +470,15 @@
       if (rar && c.rar !== rar) return false;
       if (onlyStock && !(c.best && c.best.s !== 0)) return false;
       if (colors.size && !colors.has(c.color)) return false;
+      if (selectedEnergy.size && !(c.energy != null && selectedEnergy.has(Math.min(c.energy, 7)))) return false;
+      if (selectedAP.size && !(c.ap != null && selectedAP.has(c.ap))) return false;
       for (const t of terms) if (!c.search.includes(t)) return false;
       return true;
     });
     const price = (c) => (c.best ? c.best.p : Infinity);
-    if (sort === "low") filtered.sort((a, b) => price(a) - price(b) || numCmp(a, b));
+    const cost = (c) => (c.energy == null ? 99 : c.energy);
+    if (sort === "cost") filtered.sort((a, b) => cost(a) - cost(b) || numCmp(a, b));
+    else if (sort === "low") filtered.sort((a, b) => price(a) - price(b) || numCmp(a, b));
     else if (sort === "high") filtered.sort((a, b) => (b.best ? b.best.p : -1) - (a.best ? a.best.p : -1) || numCmp(a, b));
     else filtered.sort(numCmp);
     shown = 0;
@@ -516,6 +548,8 @@
     meta.textContent = "";
     meta.append(
       c.color ? el("span", { class: "cm-color", style: `--cc: ${COLOR_INFO[c.color].hex}`, text: COLOR_INFO[c.color].label + "色" }) : "",
+      c.energy != null ? el("span", { class: "cm-cost", text: `必要エナジー ${c.energy}` }) : "",
+      c.ap != null ? el("span", { class: "cm-cost", text: `消費 AP ${c.ap}` }) : "",
       c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, SETNAMES[c.set] ? el("span", { class: "cm-set", text: SETNAMES[c.set] }) : "");
     // 三家價格（由上到下）
     const shops = $("#cmShops");
@@ -580,7 +614,7 @@
       thumbEl(c),
       el("div", {},
         el("div", { class: "c-name", text: c.name }),
-        el("div", { class: "c-meta" }, colorDot(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, SETNAMES[c.set] ? " · " + SETNAMES[c.set] : ""),
+        el("div", { class: "c-meta" }, colorDot(c), costBadge(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, SETNAMES[c.set] ? " · " + SETNAMES[c.set] : ""),
         offersEl(c)),
       el("div", { class: "add-col" },
         el("button", {
@@ -727,7 +761,7 @@
         thumbEl(c),
         el("div", {},
           el("div", { class: "c-name", text: c.name }),
-          el("div", { class: "c-meta" }, colorDot(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num),
+          el("div", { class: "c-meta" }, colorDot(c), costBadge(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num),
           el("div", { class: "sub" },
             b ? [`${totalMode === "high" ? "最貴" : "最便宜"}：${SHOPS[b.shop].short} ${yen(b.p)} × ${q} = `, el("b", { text: yen(b.p * q) })] : "目前沒有價格",
             stockShort ? el("span", { class: "short", text: b.s === 0 ? "（售完）" : `（只剩 ${b.s} 張）` }) : null),
@@ -946,21 +980,27 @@ p{margin:0;font-size:12px;color:#8593c7}
   }
 
   /* ======================= 匯入（書籤） ======================= */
-  function mergeColors(items) {
+  // 官方卡表：每張卡存 [顏色, 時間, 必要エナジー, 消費 AP]
+  function mergeColors(items, titles) {
     const now = Date.now();
     const box = (imports.colors = imports.colors || { items: {} });
     let count = 0;
+    const int = (v, max) => (Number.isInteger(v) && v >= 0 && v <= max ? v : null);
     for (const it of items) {
       if (!Array.isArray(it) || !NUM_RE.test(String(it[0])) || !COLOR_INFO[it[1]]) continue;
-      box.items[it[0]] = [it[1], now];
+      box.items[it[0]] = [it[1], now, int(it[2], 30), int(it[3], 9)];
       count++;
+    }
+    if (Array.isArray(titles) && titles.length) {
+      box.titles = box.titles || {};
+      for (const t of titles) if (typeof t === "string" && t.length < 100) box.titles[t] = now;
     }
     box.t = now;
     saveImports("colors");
     return count;
   }
-  function mergeImport(shop, items, sets) {
-    if (shop === "colors") return mergeColors(items);
+  function mergeImport(shop, items, sets, titles) {
+    if (shop === "colors") return mergeColors(items, titles);
     const now = Date.now();
     const box = (imports[shop] = imports[shop] || { items: {} });
     if (shop === "yuyu" && sets && typeof sets === "object") {
@@ -1031,17 +1071,24 @@ p{margin:0;font-size:12px;color:#8593c7}
     }
     const shop = SHOP_ORIGINS[e.origin];
     const d = e.data;
-    if (!shop || !d || d.type !== "ua-import" || d.shop !== shop) return;
+    if (!shop || !d || (d.type !== "ua-import" && d.type !== "ua-query") || d.shop !== shop) return;
     const reply = (m) => { try { e.source && e.source.postMessage(m, e.origin); } catch (err) {} };
     return handleImport(shop, d, reply);
   }
 
   async function handleImport(shop, d, reply) {
-    if (!d || d.type !== "ua-import" || typeof d.batch !== "string") return;
+    if (!d || typeof d.batch !== "string") return;
+    if (d.type === "ua-query") {
+      // 匯入程式問：官方卡表哪些作品已經抓過（這一版起才有費用資料）
+      await importsReady;
+      const c = effImports().colors;
+      return reply({ type: "ua-done", batch: d.batch, known: Object.keys((c && c.titles) || {}) });
+    }
+    if (d.type !== "ua-import") return;
     await importsReady; // 確保先載入舊資料再合併
     if (seenBatches.has(d.batch)) return reply({ type: "ua-done", batch: d.batch });
     seenBatches.add(d.batch);
-    const n = mergeImport(shop, Array.isArray(d.items) ? d.items : [], d.sets);
+    const n = mergeImport(shop, Array.isArray(d.items) ? d.items : [], d.sets, d.titles);
     importCounts[shop] = (importCounts[shop] || 0) + n;
     reply({ type: "ua-done", batch: d.batch, count: n });
     clearHash();
@@ -1057,7 +1104,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     const total = importCounts[shop] || 0;
     delete importCounts[shop];
     switchView("settings");
-    let msg = `已從 ${SOURCE_NAME(shop)} 匯入 ${total.toLocaleString()} 筆${shop === "colors" ? "卡片顏色" : "價格"}`;
+    let msg = `已從 ${SOURCE_NAME(shop)} 匯入 ${total.toLocaleString()} 筆${shop === "colors" ? "卡片資料" : "價格"}`;
     if (gh && gh.token) {
       showImportOverlay(msg + "\n同步到 GitHub 中…");
       const r = await syncToGitHub();
@@ -1340,6 +1387,7 @@ p{margin:0;font-size:12px;color:#8593c7}
   function refreshAll() {
     buildCards();
     renderColorChips();
+    renderCostChips();
     renderStamp();
     renderModal();
     fillFilters();
