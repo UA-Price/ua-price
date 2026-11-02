@@ -15,8 +15,8 @@
   const SITE_ORIGIN = EXT ? location.origin : new URL(SITE).origin;
   const host = location.host;
   const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
-    : host.includes("unionarena-tcg.com") ? "colors" : null;
-  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", colors: "官方卡表（卡片資料）" }[shop];
+    : host.includes("merucarduniari") ? "meru" : host.includes("unionarena-tcg.com") ? "colors" : null;
+  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", meru: "メルカード", colors: "官方卡表（卡片資料）" }[shop];
   // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
   // 遊々亭、Hobby Station 5 秒；ドラゴンスター 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
   const DELAY = shop === "dora" ? 10000 : shop === "colors" ? 2000 : 5000;
@@ -97,7 +97,7 @@
   }
 
   if (!shop) {
-    say("請在遊々亭、Hobby Station、ドラゴンスター 或官方卡表的網站上使用這個書籤。");
+    say("請在遊々亭、Hobby Station、ドラゴンスター、メルカード 或官方卡表的網站上使用這個書籤。");
     return finish(5000);
   }
 
@@ -202,6 +202,38 @@
     return { items: out, pageMax: Math.min(+(pm && pm.value) || 1, 30) };
   }
 
+  /* ---------- 解析：メルカード ---------- */
+  // 商品名稱例：「牧瀬 紅莉栖/SR★★★【青】【キャラクター】《★★★パラレル版UA57BT/STG-1-029》」
+  function parseMeru(doc) {
+    const out = [];
+    const items = doc.querySelectorAll("div.item_data");
+    items.forEach((it) => {
+      const nameEl = it.querySelector(".goods_name") || it.querySelector(".item_name");
+      const full = nameEl ? nameEl.textContent.replace(/\s+/g, " ").trim() : "";
+      if (!full) return;
+      // 跳過特價品（可能有傷）、未開封／開封済、序號卡、構築済デッキ、聯名商品
+      if (/特価品|未開封|開封済|シリアル|デッキ|コラボ|BOX|ボックス|スリーブ/.test(full)) return;
+      const m = full.match(KEY_RE);
+      if (!m) return;
+      const slash = full.indexOf("/");
+      const rarSeg = slash >= 0 ? full.slice(slash + 1).split("【")[0] : "";
+      const stars = (rarSeg.match(STAR) || []).length;
+      let name = (slash >= 0 ? full.slice(0, slash) : full).replace(/《[^》]*》|【[^】]*】/g, "").trim();
+      const priceText = (it.querySelector(".selling_price") || it).textContent;
+      const pm = priceText.replace(/\s+/g, "").match(/([\d,]+)円/);
+      if (!pm) return;
+      const stockText = (it.querySelector(".stock") || {}).textContent || it.textContent;
+      let stock = -1;
+      const sm = stockText.match(/在庫数\s*([\d,]+)\s*点/);
+      if (sm) stock = Math.min(+sm[1].replace(/,/g, ""), 98);
+      else if (/売り切れ|品切れ|在庫なし|SOLD/i.test(stockText) || it.querySelector('[class*="sold"]')) stock = 0;
+      const a = it.querySelector("a.item_data_link, a[href*='/product/']");
+      out.push([m[1] + "/" + m[2], stars, name, +pm[1].replace(/,/g, ""), stock, a ? a.href : ""]);
+    });
+    // 有沒有下一頁：找「page=目前頁+1」的連結
+    return { items: out, rows: items.length };
+  }
+
   const isCheckPage = (html) => /安全な接続を確認中|Just a moment/.test(String(html).slice(0, 3000));
   const isDenied = (html) => /<title>[^<]*(Access denied|Attention Required|Sorry, you have been blocked)/i.test(String(html).slice(0, 3000));
   const DENIED_MSG = "這家網站目前擋住你的瀏覽器（Cloudflare：Access denied）。通常是一次讀太多頁被暫時封鎖，過幾個小時到一兩天會自己解除，請先不要匯入這家。";
@@ -284,6 +316,40 @@
       map.set(sid, { label: a.textContent.replace(/\s+/g, " ").trim() || "sid " + sid, url: u.href });
     }
     return [...map.values()];
+  }
+
+  async function seriesListMeru() {
+    const doc = /\/page\/pack/.test(location.pathname) ? document : await fetchDoc(location.origin + "/page/pack");
+    const map = new Map();
+    for (const a of doc.querySelectorAll('a[href*="/product-group/"]')) {
+      let u;
+      try { u = new URL(a.getAttribute("href"), location.origin); } catch (e) { continue; }
+      const m = u.pathname.match(/^\/product-group\/(\d+)/);
+      if (!m || map.has(m[1])) continue;
+      const label = (a.textContent.trim() || (a.querySelector("img") || {}).alt || "").replace(/\s+/g, " ");
+      if (/サプライ|未開封|福袋|シリアル|BOX|ボックス|スリーブ/.test(label)) continue; // 不是單卡的分類
+      map.set(m[1], { label: label || "系列 " + m[1], url: location.origin + "/product-group/" + m[1] });
+    }
+    return [...map.values()];
+  }
+  async function readSeriesMeru(url, first) {
+    const items = [];
+    for (let p = 1; p <= 20; p++) {
+      if (cancelled) break;
+      const u = new URL(url);
+      u.searchParams.set("num", "120"); // 一頁 120 筆，頁數少一半
+      if (p > 1) u.searchParams.set("page", String(p));
+      // 一律用 120 筆的網址重新讀（目前頁面可能是 60 筆一頁，混用會漏掉卡）
+      const doc = await fetchDoc(u.href);
+      const r = parseMeru(doc);
+      items.push(...r.items);
+      const hasNext = [...doc.querySelectorAll('a[href*="page="]')].some((a) => {
+        try { return new URL(a.getAttribute("href"), location.origin).searchParams.get("page") === String(p + 1); } catch (e) { return false; }
+      });
+      if (!r.rows || !hasNext) break;
+      await sleep(DELAY);
+    }
+    return items;
   }
 
   /* ---------- 官方卡表：每個作品查顏色（5 次）、必要エナジー（逐一查到全部對上）、消費 AP（2、3 各一次） ---------- */
@@ -382,7 +448,7 @@
   async function readSeriesYuyu(url, first) {
     return parseYuyu(first || (await fetchDoc(url))).items;
   }
-  const readSeries = { yuyu: readSeriesYuyu, hs: readSeriesHS, dora: readSeriesDora, colors: readSeriesColors }[shop];
+  const readSeries = { yuyu: readSeriesYuyu, hs: readSeriesHS, dora: readSeriesDora, meru: readSeriesMeru, colors: readSeriesColors }[shop];
 
   /* ---------- 傳送到比價網站 ---------- */
   let win = null;
@@ -448,7 +514,7 @@
       say("讀取系列清單…");
       let denied = /Access denied|Attention Required|blocked/i.test(document.title);
       try {
-        if (!denied) series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, colors: seriesListColors }[shop]();
+        if (!denied) series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, meru: seriesListMeru, colors: seriesListColors }[shop]();
       } catch (e) {
         if (e.message === "denied") denied = true;
         series = [];
@@ -486,8 +552,8 @@
     } else {
       // 如果目前在第 2 頁以後，改從第 1 頁開始讀
       const u = new URL(location.href);
-      const onLaterPage = u.searchParams.has("pageno") || u.searchParams.has("form110200_mode");
-      ["pageno", "form110200_mode", "form110200_params[0]", "form110200_params[1]", "page_now", "page_max"].forEach((k) => u.searchParams.delete(k));
+      const onLaterPage = u.searchParams.has("pageno") || u.searchParams.has("page") || u.searchParams.has("num") || u.searchParams.has("form110200_mode");
+      ["pageno", "page", "num", "form110200_mode", "form110200_params[0]", "form110200_params[1]", "page_now", "page_max"].forEach((k) => u.searchParams.delete(k));
       if (shop === "yuyu") readVers(document);
       series = [{ label: document.title, url: u.href, here: !onLaterPage }];
     }
@@ -571,7 +637,7 @@
     button("取消", false, () => finish(0));
     return;
   }
-  const hereCount = { yuyu: parseYuyu, hs: parseHS, dora: parseDora }[shop](document).items.length;
+  const hereCount = { yuyu: parseYuyu, hs: parseHS, dora: parseDora, meru: parseMeru }[shop](document).items.length;
   say(`${SHOP_NAME} 價格匯入` + (hereCount ? `\n這一頁有 ${hereCount} 筆單卡。` : ""));
   button("匯入全部系列", true, () => run("all"));
   if (hereCount) button("只匯入這個系列", false, () => run("here"));

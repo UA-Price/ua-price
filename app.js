@@ -7,13 +7,15 @@
     yuyu: { name: "遊々亭", short: "遊々亭" },
     hs: { name: "Hobby Station", short: "ホビステ" },
     dora: { name: "ドラゴンスター", short: "ドラスタ" },
+    meru: { name: "メルカード", short: "メルカード" },
   };
   const SHOP_BASE = {
     yuyu: "https://yuyu-tei.jp",
     hs: "https://www.hobbystation-single.jp",
     dora: "https://dorasuta.jp",
+    meru: "https://www.merucarduniari.jp",
   };
-  const IMPORT_SHOPS = ["yuyu", "hs", "dora"];
+  const IMPORT_SHOPS = ["yuyu", "hs", "dora", "meru"];
   const DATA_KEYS = [...IMPORT_SHOPS, "colors"]; // 匯入資料的種類：三家價格 + 官方卡表的卡片顏色
   const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片資料）" : SHOPS[k].name);
   const ENERGY_CHIPS = [0, 1, 2, 3, 4, 5, 6, 7]; // 7 代表 7 以上
@@ -30,6 +32,7 @@
     "https://yuyu-tei.jp": "yuyu",
     "https://www.hobbystation-single.jp": "hs",
     "https://dorasuta.jp": "dora",
+    "https://www.merucarduniari.jp": "meru",
     "https://www.unionarena-tcg.com": "colors",
   };
   const OLD_DAYS = 14;          // 匯入超過 14 天的價格標示為「舊」
@@ -145,7 +148,7 @@
       } catch (e) { return false; }
     },
   };
-  // 每家分開存（imp:yuyu、imp:hs、imp:dora），三家同時匯入時才不會互相蓋掉
+  // 每家分開存（imp:yuyu、imp:hs、imp:dora、imp:meru），同時匯入時才不會互相蓋掉
   async function readLocalImports() {
     const v = {};
     for (const shop of DATA_KEYS) {
@@ -510,6 +513,7 @@
     yuyu: (q) => `https://yuyu-tei.jp/sell/ua/s/search?search_word=${encodeURIComponent(q)}`,
     hs: (q) => `https://www.hobbystation-single.jp/ua/product/list?match_type=1&search_word=${encodeURIComponent(q)}`,
     dora: (q) => `https://dorasuta.jp/union-arena/product-list?kw=${encodeURIComponent(q)}`,
+    meru: () => "https://www.merucarduniari.jp/page/pack", // 搜尋網址還沒確認，先開「パック別」
   };
   let modalKey = null;
   function openCard(k) {
@@ -561,7 +565,7 @@
       const when = o && o.t ? `${new Date(o.t).toLocaleDateString()} 匯入` + (ageText(o.t) ? "・舊" : "") : "";
       const link = o && o.url
         ? el("a", { class: "btn small cm-go", href: o.url, target: "_blank", rel: "noopener" }, `前往${SHOPS[shop].short} ↗`)
-        : el("a", { class: "btn small ghost cm-go", href: SEARCH_URL[shop](c.base), target: "_blank", rel: "noopener" }, `在${SHOPS[shop].short}搜尋 ↗`);
+        : el("a", { class: "btn small ghost cm-go", href: SEARCH_URL[shop](c.base), target: "_blank", rel: "noopener" }, shop === "meru" ? `前往${SHOPS[shop].short} ↗` : `在${SHOPS[shop].short}搜尋 ↗`);
       shops.append(el("div", { class: `cm-shop ${shop}${isBest ? " best" : ""}${o && o.s === 0 ? " sold" : ""}${o ? "" : " none"}` },
         el("div", { class: "cm-shop-head" },
           el("span", { class: "cm-shop-name", text: SHOPS[shop].name }),
