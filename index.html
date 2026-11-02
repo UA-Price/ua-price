@@ -7,7 +7,7 @@
 <meta name="description" content="Union Arena 日文版卡牌：遊々亭、Hobby Station、ドラゴンスター、メルカード 比價與卡組編輯">
 <meta name="theme-color" content="#050822">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23c14ae0'/%3E%3Cstop offset='1' stop-color='%2327c8da'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='11' y='3' width='42' height='58' rx='7' fill='%230a1036' stroke='%237fb3e8' stroke-width='4'/%3E%3Cpath d='M14 24 L34 6 M30 58 L50 40' stroke='url(%23g)' stroke-width='4'/%3E%3Crect x='26' y='26' width='12' height='12' fill='%23f04b26' transform='rotate(45 32 32)'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=20261102">
+<link rel="stylesheet" href="style.css?v=20261102c">
 </head>
 <body class="view-search">
 
@@ -37,7 +37,14 @@
     <button data-view="deck" class="tab" role="tab">卡組 <span id="deckBadge" class="badge">0</span></button>
     <button data-view="settings" class="tab" role="tab"><span class="admin-only">匯入・設定</span><span class="viewer-only">價格資料</span></button>
   </nav>
+  <button id="helpBtn" class="help-btn" type="button" aria-label="使用說明"><span aria-hidden="true">?</span><em>說明</em></button>
 </header>
+
+<div id="helpHint" class="help-hint" hidden>
+  <span>第一次使用嗎？花一分鐘看看怎麼用吧。</span>
+  <button id="helpHintOpen" class="btn small primary" type="button">看使用說明</button>
+  <button id="helpHintClose" class="btn small ghost" type="button">不用了</button>
+</div>
 
 <div id="notice" class="notice" hidden></div>
 
@@ -190,8 +197,86 @@
   </div>
 </div>
 
+<div id="helpModal" class="overlay help-modal" hidden role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="help-box">
+    <button id="helpClose" class="cm-close" type="button" aria-label="關閉">×</button>
+    <h2 id="helpTitle">使用說明</h2>
+    <p class="help-lead">查價之境可以比較 Union Arena 日文版單卡在遊々亭、Hobby Station、ドラゴンスター、メルカード 的價格，也可以直接組卡組、算整副要多少錢。</p>
+
+    <details open>
+      <summary>找卡、看價格</summary>
+      <ul>
+        <li>上方輸入框可以打<b>卡名</b>或<b>卡號</b>（例：シャイ、SHY-1-046）。</li>
+        <li>用<b>系列、稀有度、顏色、費用、AP</b> 篩選，顏色和費用可以多選。</li>
+        <li>排序可以選卡號順、價格便宜→貴、貴→便宜、費用低→高；勾「只看有庫存」會藏起買不到的卡。</li>
+        <li>每張卡下面是各家價格：<span class="hl-ok">綠框</span>＝最便宜、<s>劃線</s>＝售完、「剩 N」＝只剩幾張、「舊」＝超過 14 天沒更新。</li>
+        <li>左上角會寫價格最後更新的時間。價格只是參考，實際以店家頁面為準。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>點卡片看大圖和各家價格</summary>
+      <ul>
+        <li>點一下卡片（＋ 按鈕以外的地方）會跳出大圖，右邊由上到下列出各家價格、庫存。</li>
+        <li>「前往○○ ↗」會打開那家店的商品頁，看到的就是當下最新的價格；沒有資料的店則是「在○○搜尋」。</li>
+        <li>視窗下面可以直接增減這張卡在卡組裡的張數。按 ×、點外面、按返回鍵都能關掉。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>組卡組</summary>
+      <ul>
+        <li>按卡片右邊的 <b>＋</b> 加入目前的卡組。手機到下方「卡組」分頁看，電腦則在右半邊。</li>
+        <li><b>規則檢查</b>：主卡組 50 張、同卡號最多 4 張、只能用同一個作品；AP 卡不算在 50 張內。</li>
+        <li>「全部換成最便宜版本」會把每張卡換成同卡號裡最便宜、有庫存的稀有度。</li>
+        <li>可以存很多副卡組：新增、改名、複製、刪除都在卡組名稱旁邊。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>算總價（三種算法）</summary>
+      <ul>
+        <li><b>全部取最低</b>：每張卡挑最便宜的店，湊齊整副大概要多少。</li>
+        <li><b>全部取最高</b>：每張卡挑最貴的店，看最多要準備多少。</li>
+        <li><b>各店分開算</b>：整副都在同一家買，各家要多少；會標出哪家缺哪幾種、哪些售完。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>分享與搬卡組</summary>
+      <ul>
+        <li><b>複製清單</b>：複製文字清單，可以直接貼到 LINE。</li>
+        <li><b>顯示圖片</b>：開新分頁顯示卡組圖片，手機長按圖片就能儲存或分享。</li>
+        <li><b>複製卡組代碼</b> ／ <b>貼上代碼匯入</b>：把卡組搬到另一台裝置，或傳給朋友直接匯入。</li>
+        <li>卡組只存在<b>你現在用的這個瀏覽器</b>裡。清除瀏覽器資料或換手機會不見，重要的卡組記得用代碼備份。</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>加到手機主畫面</summary>
+      <ul>
+        <li><b>iPhone（Safari 或 Chrome）</b>：按「分享」→「加入主畫面」。</li>
+        <li><b>Android（Chrome）</b>：按右上角 ⋮ →「加到主畫面」。</li>
+        <li>之後點主畫面上的圖示，就會像 App 一樣直接打開。</li>
+      </ul>
+    </details>
+
+    <details class="admin-only">
+      <summary>更新價格（管理用電腦）</summary>
+      <ul>
+        <li><b>擴充功能</b>：按 Chrome 工具列的查價之境圖示 → 勾選店家 →「開始匯入」，跑完會自動同步到手機。</li>
+        <li><b>書籤</b>：在店家網站按書籤「UA 匯入價格」→「匯入全部系列」，或在某個系列頁選「只匯入這個系列」。</li>
+        <li>有新作品時勾「官方卡表（顏色・費用）」，只會抓還沒抓過的作品。</li>
+        <li>建議一週最多更新一次；ドラゴンスター 要確定沒被封鎖再勾。詳細步驟在「匯入・設定」分頁。</li>
+      </ul>
+    </details>
+
+    <p class="help-foot">本站是玩家自製的非官方工具，跟 BANDAI 和各家店家都沒有關係。</p>
+  </div>
+</div>
+
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js?v=20261102b"></script>
+<script src="app.js?v=20261102c"></script>
 </body>
 </html>

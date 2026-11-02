@@ -39,7 +39,7 @@
   const PAGE_SIZE = 50;
   const DECK_SIZE = 50;
   const MAX_COPIES = 4;
-  const LS = { decks: "ua.decks", current: "ua.current", imports: "ua.imports", gh: "ua.gh", mode: "ua.totalMode", admin: "ua.admin" };
+  const LS = { decks: "ua.decks", current: "ua.current", imports: "ua.imports", gh: "ua.gh", mode: "ua.totalMode", admin: "ua.admin", help: "ua.helpSeen" };
   const TOTAL_MODES = [["low", "全部取最低"], ["high", "全部取最高"], ["shop", "各店分開算"]];
 
   const $ = (s) => document.querySelector(s);
@@ -422,7 +422,7 @@
         },
       }, c.label));
     }
-    if (!has) box.append(el("span", { class: "cc-hint", text: "（要先到「匯入・設定」匯入卡片顏色）" }));
+    if (!has) box.append(el("span", { class: "cc-hint", text: isAdmin() ? "（要先到「匯入・設定」匯入卡片顏色）" : "（還沒有顏色資料）" }));
     else if (selectedColors.size) box.append(el("button", { class: "cc-clear", type: "button", onclick: () => { selectedColors.clear(); renderColorChips(); runSearch(); } }, "清除"));
   }
   const selectedEnergy = new Set(), selectedAP = new Set();
@@ -439,7 +439,7 @@
     ENERGY_CHIPS.forEach((v) => box.append(chip(selectedEnergy, v, v === 7 ? "7+" : String(v), `必要エナジー ${v === 7 ? "7 以上" : v}`)));
     box.append(el("span", { class: "cc-label ap-label", text: "AP" }));
     AP_CHIPS.forEach((v) => box.append(chip(selectedAP, v, String(v), `消費 AP ${v}`)));
-    if (!has) box.append(el("span", { class: "cc-hint", text: "（要先匯入官方卡表的卡片資料）" }));
+    if (!has) box.append(el("span", { class: "cc-hint", text: isAdmin() ? "（要先匯入官方卡表的卡片資料）" : "（還沒有費用資料）" }));
     else if (selectedEnergy.size || selectedAP.size) box.append(el("button", {
       class: "cc-clear", type: "button", onclick: () => { selectedEnergy.clear(); selectedAP.clear(); renderCostChips(); runSearch(); },
     }, "清除"));
@@ -1505,6 +1505,31 @@ p{margin:0;font-size:12px;color:#8593c7}
     $("#cardModal").addEventListener("click", (e) => { if (e.target.id === "cardModal") closeCard(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalKey) closeCard(); });
     window.addEventListener("popstate", () => { if (modalKey) closeCard(true); });
+    // 使用說明
+    let helpOpen = false;
+    const openHelp = () => {
+      $("#helpHint").hidden = true;
+      store.set(LS.help, true);
+      $("#helpModal").hidden = false;
+      document.body.classList.add("modal-open");
+      if (!helpOpen) { helpOpen = true; try { history.pushState({ uaHelp: 1 }, ""); } catch (e) {} }
+      setTimeout(() => $("#helpClose").focus(), 30);
+    };
+    const closeHelp = (fromHistory) => {
+      if (!helpOpen) return;
+      helpOpen = false;
+      $("#helpModal").hidden = true;
+      if (!modalKey) document.body.classList.remove("modal-open");
+      if (!fromHistory && history.state && history.state.uaHelp) { try { history.back(); } catch (e) {} }
+    };
+    $("#helpBtn").addEventListener("click", openHelp);
+    $("#helpHintOpen").addEventListener("click", openHelp);
+    $("#helpHintClose").addEventListener("click", () => { $("#helpHint").hidden = true; store.set(LS.help, true); });
+    $("#helpClose").addEventListener("click", () => closeHelp());
+    $("#helpModal").addEventListener("click", (e) => { if (e.target.id === "helpModal") closeHelp(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && helpOpen) closeHelp(); });
+    window.addEventListener("popstate", () => { if (helpOpen) closeHelp(true); });
+    if (!store.get(LS.help, false) && location.hash !== "#import") $("#helpHint").hidden = false;
     $("#ghSave").addEventListener("click", saveGitHub);
     $("#ghSync").addEventListener("click", async () => {
       $("#ghState").textContent = "同步中…";
