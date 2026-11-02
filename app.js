@@ -455,7 +455,8 @@
     const fSet = $("#fSet");
     fSet.length = 1;
     for (const [code, name] of Object.entries(allSets())) fSet.append(el("option", { value: code, text: name }));
-    const rars = [...new Set(CARDS.map((c) => c.rar).filter(Boolean))].sort((a, b) =>
+    // 只有星星、沒有稀有度的（只在其他店出現的卡）不列進選單
+    const rars = [...new Set(CARDS.map((c) => c.rar).filter((r) => r && !/^[★☆]+$/.test(r)))].sort((a, b) =>
       a.replace(/[★☆]/g, "") === b.replace(/[★☆]/g, "") ? starsOf(a) - starsOf(b) : a < b ? -1 : 1);
     const fRar = $("#fRar");
     fRar.length = 1;
