@@ -507,7 +507,26 @@
 
   async function run(mode) {
     btns.textContent = "";
-    if (!EXT) win = window.open(SITE + "#import", "ua_price_import");
+    if (!EXT) {
+      win = window.open(SITE + "#import", "ua_price_import");
+      if (!win) {
+        say("瀏覽器擋住了查價之境的視窗。\n請點網址列右邊的彈出視窗圖示 →「一律允許」，再按一次書籤。");
+        button("關閉", false, () => finish(0));
+        return;
+      }
+      // 先確認網站有回應，再開始讀（網站是舊版、或被擋時，不要白讀一整輪）
+      say("連線到查價之境網站…");
+      for (let t = 0; t < 24 && !siteReady && !win.closed; t++) {
+        try { win.postMessage({ type: "ua-ping" }, SITE_ORIGIN); } catch (e) {}
+        await sleep(500);
+      }
+      if (!siteReady) {
+        say("查價之境網站沒有回應。\n可能網站還是舊版：請到查價之境的分頁按 Ctrl + F5 重新整理，再回來按一次書籤。");
+        button("仍然開始", false, () => { siteReady = true; run(mode); });
+        button("關閉", false, () => finish(0));
+        return;
+      }
+    }
     button("停止", false, () => { cancelled = true; say("停止中…（會把已讀到的先送出）"); });
     let series;
     if (mode === "all" || mode === "new") {

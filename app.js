@@ -1075,6 +1075,10 @@ p{margin:0;font-size:12px;color:#8593c7}
     }
     const shop = SHOP_ORIGINS[e.origin];
     const d = e.data;
+    if (shop && d && d.type === "ua-ping") { // 書籤確認網站有沒有在聽
+      try { e.source && e.source.postMessage({ type: "ua-ready" }, e.origin); } catch (err) {}
+      return;
+    }
     if (!shop || !d || (d.type !== "ua-import" && d.type !== "ua-query") || d.shop !== shop) return;
     const reply = (m) => { try { e.source && e.source.postMessage(m, e.origin); } catch (err) {} };
     return handleImport(shop, d, reply);
