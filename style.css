@@ -520,19 +520,20 @@ body.admin .viewer-only { display: none !important; }
 }
 
 /* ---------- 使用說明 ---------- */
+.top-btns { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 6px; }
 .help-btn {
-  position: absolute; top: 12px; right: 14px; display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 11px 5px 6px; border-radius: 99px; border: 1px solid var(--line-strong);
   background: rgba(8, 14, 52, .85); color: var(--ink-2); font-weight: 700; font-size: 13px; cursor: pointer;
 }
-.help-btn span {
+.help-btn > span {
   width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 900;
   background: var(--accent-grad); color: #fff; box-shadow: 0 0 10px rgba(240, 75, 38, .4);
 }
 .help-btn em { font-style: normal; }
 .help-btn:hover { border-color: var(--neon-t); color: #fff; }
 @media (min-width: 980px) {
-  .help-btn { position: static; margin-left: 10px; }
+  .top-btns { position: static; flex-direction: row; margin-left: 10px; }
   .top { gap: 8px; }
   .top .brand { margin-right: auto; }
 }
@@ -615,3 +616,19 @@ body.admin .viewer-only { display: none !important; }
 @media (max-width: 720px) { .hand-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .help-box .hand-cards { padding: 0; margin-left: 0; }
 .hand-btns .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 換算台幣 */
+.cur-btn > span { background: linear-gradient(135deg, #ffd43b, #f59f00); box-shadow: 0 0 10px rgba(255, 212, 59, .35); color: #1b1300; }
+.cur-btn[aria-pressed="true"] { border-color: #ffd43b; color: #fff; background: rgba(60, 48, 8, .9); }
+.rate-bar {
+  margin: 10px 16px 0; padding: 8px 12px; border-radius: var(--radius); font-size: 13px; color: var(--ink-2);
+  border: 1px solid rgba(255, 212, 59, .45); background: rgba(40, 34, 10, .75);
+}
+.rate-bar b { color: #ffd43b; }
+.rate-bar a { color: var(--ink-3); }
+@media (min-width: 980px) { .rate-bar { max-width: 1200px; margin: 12px auto 0; } }
+@media (max-width: 519px) {
+  .top-btns .help-btn { padding: 4px 9px 4px 5px; font-size: 12px; }
+  .cur-btn .long { display: none; }
+}
+@media (min-width: 520px) { .cur-btn .short { display: none; } }

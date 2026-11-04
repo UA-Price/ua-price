@@ -59,7 +59,18 @@
     for (const k of kids.flat()) if (k != null && k !== false) n.append(k instanceof Node ? k : String(k));
     return n;
   };
-  const yen = (n) => "¥" + Math.round(n).toLocaleString("ja-JP");
+  /* ---------- 日幣價格換算台幣（看的人自己切換） ---------- */
+  const RATE_URL = "https://open.er-api.com/v6/latest/JPY"; // 免費匯率，每天更新一次，要標示來源
+  const RATE_FALLBACK = 0.21;
+  let showTwd = false, rate = { r: RATE_FALLBACK, t: 0, ok: false };
+  try {
+    showTwd = localStorage.getItem("ua.currency") === "twd";
+    const saved = JSON.parse(localStorage.getItem("ua.rate") || "null");
+    if (saved && saved.r > 0) rate = { ...saved, ok: true };
+  } catch (e) {}
+  const yenRaw = (n) => "¥" + Math.round(n).toLocaleString("ja-JP");
+  // 有開換算時，日幣價格都顯示成「≈NT$」（≈ 表示是換算的，不是店家標價）
+  const yen = (n) => (showTwd ? "≈NT$" + Math.round(n * rate.r).toLocaleString("zh-TW") : yenRaw(n));
   const ntd = (n) => "NT$" + Math.round(n).toLocaleString("zh-TW");
   const money = (shop, n) => (SHOPS[shop] && SHOPS[shop].twd ? ntd(n) : yen(n)); // 卡拍拍顯示台幣
   const imgUrl = (c) => (c.set && c.id && !c.noimg ? `https://card.yuyu-tei.jp/ua/100_140/${c.set}/${c.id}.jpg` : "");
@@ -1527,6 +1538,45 @@ p{margin:0;font-size:12px;color:#8593c7}
     window.scrollTo({ top: 0 });
   }
 
+  async function loadRate(force) {
+    if (!force && rate.ok && Date.now() - rate.t < 12 * 3600 * 1000) return true; // 12 小時內抓過就用存的
+    try {
+      const j = await (await fetch(RATE_URL, { cache: "no-store" })).json();
+      const r = j && j.result === "success" && j.rates && +j.rates.TWD;
+      if (!(r > 0)) throw new Error("bad");
+      rate = { r, t: Date.now(), src: j.time_last_update_utc ? Date.parse(j.time_last_update_utc) : Date.now(), ok: true };
+      try { localStorage.setItem("ua.rate", JSON.stringify(rate)); } catch (e) {}
+      return true;
+    } catch (e) { return false; }
+  }
+  function renderCurrency() {
+    const b = $("#curBtn");
+    b.setAttribute("aria-pressed", showTwd ? "true" : "false");
+    b.querySelector("em").textContent = "";
+    b.querySelector("em").append(el("span", { class: "long", text: showTwd ? "顯示日幣" : "換算台幣" }), el("span", { class: "short", text: showTwd ? "日幣" : "台幣" }));
+    const bar = $("#rateBar");
+    bar.hidden = !showTwd;
+    if (!showTwd) return;
+    bar.textContent = "";
+    const when = rate.src ? new Date(rate.src).toLocaleDateString() : "";
+    bar.append("日幣價格已換算成台幣（標 ≈ 的是換算的，實際以店家日幣標價為準）：",
+      el("b", { text: `1 日圓 ≈ ${rate.r.toFixed(4)} 台幣` }),
+      rate.ok ? `（${when} 匯率）・` : "（抓不到即時匯率，先用約略值）・",
+      el("a", { href: "https://www.exchangerate-api.com", target: "_blank", rel: "noopener" }, "Rates By Exchange Rate API"));
+  }
+  async function toggleCurrency() {
+    showTwd = !showTwd;
+    try { localStorage.setItem("ua.currency", showTwd ? "twd" : "jpy"); } catch (e) {}
+    if (showTwd) {
+      const ok = await loadRate(false);
+      if (!ok && !rate.ok) toast("抓不到即時匯率，先用 1 日圓 ≈ 0.21 台幣");
+    }
+    renderCurrency();
+    renderModal();
+    runSearch();
+    renderDeck();
+  }
+
   function refreshAll() {
     buildCards();
     renderColorChips();
@@ -1673,6 +1723,9 @@ p{margin:0;font-size:12px;color:#8593c7}
       if (!fromHistory && history.state && history.state.uaHelp) { try { history.back(); } catch (e) {} }
     };
     $("#helpBtn").addEventListener("click", openHelp);
+    $("#curBtn").addEventListener("click", toggleCurrency);
+    renderCurrency();
+    if (showTwd) loadRate(false).then(() => { renderCurrency(); renderModal(); runSearch(); renderDeck(); });
     $("#helpHintOpen").addEventListener("click", openHelp);
     $("#helpHintClose").addEventListener("click", () => { $("#helpHint").hidden = true; store.set(LS.help, true); });
     $("#helpClose").addEventListener("click", () => closeHelp());

@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-180.png?v=1">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="查價之境">
-<link rel="stylesheet" href="style.css?v=20261104e">
+<link rel="stylesheet" href="style.css?v=20261104g">
 </head>
 <body class="view-search">
 
@@ -40,8 +40,12 @@
     <button data-view="deck" class="tab" role="tab">卡組 <span id="deckBadge" class="badge">0</span></button>
     <button data-view="settings" class="tab" role="tab"><span class="admin-only">匯入・設定</span><span class="viewer-only">價格資料</span></button>
   </nav>
-  <button id="helpBtn" class="help-btn" type="button" aria-label="使用說明"><span aria-hidden="true">?</span><em>說明</em></button>
+  <div class="top-btns">
+    <button id="curBtn" class="help-btn cur-btn" type="button" aria-pressed="false" title="把日幣價格換算成台幣顯示"><span aria-hidden="true">$</span><em>換算台幣</em></button>
+    <button id="helpBtn" class="help-btn" type="button" aria-label="使用說明"><span aria-hidden="true">?</span><em>說明</em></button>
+  </div>
 </header>
+<div id="rateBar" class="rate-bar" hidden></div>
 
 <div id="helpHint" class="help-hint" hidden>
   <span>第一次使用嗎？花一分鐘看看怎麼用吧。</span>
@@ -220,7 +224,7 @@
   <div class="help-box">
     <button id="helpClose" class="cm-close" type="button" aria-label="關閉">×</button>
     <h2 id="helpTitle">使用說明</h2>
-    <p class="help-lead">查價之境可以比較 Union Arena 日文版單卡在遊々亭、Hobby Station、ドラゴンスター、メルカード 的日幣價格，以及台灣玩家交易平台「卡拍拍」的台幣價格（台幣另外顯示、另外算總價，不跟日幣比），也可以直接組卡組、算整副要多少錢。</p>
+    <p class="help-lead">查價之境可以比較 Union Arena 日文版單卡在遊々亭、Hobby Station、ドラゴンスター、メルカード 的日幣價格，以及台灣玩家交易平台「卡拍拍」的台幣價格（台幣另外顯示、另外算總價，不跟日幣比），也可以直接組卡組、算整副要多少錢。按右上角「換算台幣」可以把日幣價格依當天匯率換算成台幣顯示（標 ≈ 的是換算值），再按一次切回日幣。</p>
 
     <details open>
       <summary>找卡、看價格</summary>
@@ -296,6 +300,6 @@
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js?v=20261104e"></script>
+<script src="app.js?v=20261104g"></script>
 </body>
 </html>
