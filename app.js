@@ -586,6 +586,76 @@
     // 自己關掉時退一步歷史紀錄；退回來觸發的 popstate 不要順便把卡片視窗也關掉
     if (!fromHistory && history.state && history.state.uaZoom) { zoomPopSkip = true; try { history.back(); } catch (e) { zoomPopSkip = false; } }
   }
+  /* ---------- 測試起手：洗牌後抽 7 張 ---------- */
+  const HAND_SIZE = 7;
+  const hand = { open: false, deck: [], cards: [], mulled: false };
+  function shuffle(a) { // Fisher–Yates，用瀏覽器的安全亂數
+    const r = new Uint32Array(1);
+    for (let i = a.length - 1; i > 0; i--) {
+      crypto.getRandomValues(r);
+      const j = r[0] % (i + 1);
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  function handNewGame() {
+    const pile = [];
+    for (const { c, q } of deckEntries()) if (!isAP(c.num)) for (let i = 0; i < q; i++) pile.push(c);
+    hand.deck = shuffle(pile);
+    hand.cards = hand.deck.splice(0, HAND_SIZE);
+    hand.mulled = false;
+    renderHand();
+  }
+  function handMulligan() {
+    if (hand.mulled) return;
+    hand.deck = shuffle(hand.deck.concat(hand.cards));
+    hand.cards = hand.deck.splice(0, HAND_SIZE);
+    hand.mulled = true;
+    renderHand();
+  }
+  function handDraw() {
+    if (!hand.deck.length) return;
+    hand.cards.push(hand.deck.shift());
+    renderHand();
+  }
+  function renderHand() {
+    const total = hand.cards.length + hand.deck.length;
+    $("#handInfo").textContent = `主卡組 ${total} 張・手牌 ${hand.cards.length} 張・牌庫剩 ${hand.deck.length} 張` + (hand.mulled ? "・已換過手牌" : "");
+    const ul = $("#handCards");
+    ul.textContent = "";
+    hand.cards.forEach((c, i) => {
+      const li = el("li", { class: "hand-card" + (i >= HAND_SIZE ? " drawn" : ""), title: c.name, tabindex: "0" });
+      const list = imgCandidates(c, 240);
+      if (list.length) {
+        const img = el("img", { alt: c.name, loading: "lazy", referrerpolicy: "no-referrer", decoding: "async" });
+        setImgChain(img, list, () => img.replaceWith(el("div", { class: "hand-noimg", text: c.name })));
+        li.append(img);
+      } else li.append(el("div", { class: "hand-noimg", text: c.name }));
+      li.append(el("span", { class: "hand-name", text: c.name }));
+      const zoom = () => { const full = officialList(c)[0]; if (full) openZoom(full, c.name); };
+      li.addEventListener("click", zoom);
+      li.addEventListener("keydown", (e) => { if (e.key === "Enter") zoom(); });
+      ul.append(li);
+    });
+    $("#handMull").disabled = hand.mulled;
+    $("#handDraw").disabled = !hand.deck.length;
+  }
+  function openHand() {
+    const main = deckEntries().filter(({ c }) => !isAP(c.num)).reduce((n, { q }) => n + q, 0);
+    if (main < HAND_SIZE) { toast(`主卡組至少要 ${HAND_SIZE} 張才能測試起手`); return; }
+    handNewGame();
+    $("#handModal").hidden = false;
+    document.body.classList.add("modal-open");
+    if (!hand.open) { hand.open = true; try { history.pushState({ uaHand: 1 }, ""); } catch (e) {} }
+    setTimeout(() => $("#handNew").focus(), 30);
+  }
+  function closeHand(fromHistory) {
+    if (!hand.open) return;
+    hand.open = false;
+    $("#handModal").hidden = true;
+    document.body.classList.remove("modal-open");
+    if (!fromHistory && history.state && history.state.uaHand) { try { history.back(); } catch (e) {} }
+  }
   function closeCard(fromHistory) {
     if (!modalKey) return;
     modalKey = null;
@@ -1513,6 +1583,12 @@ p{margin:0;font-size:12px;color:#8593c7}
       renderResultsCounts();
     });
     $("#btnCheapest").addEventListener("click", swapToCheapest);
+    $("#btnHand").addEventListener("click", openHand);
+    $("#handClose").addEventListener("click", () => closeHand());
+    $("#handModal").addEventListener("click", (e) => { if (e.target.id === "handModal") closeHand(); });
+    $("#handNew").addEventListener("click", handNewGame);
+    $("#handMull").addEventListener("click", handMulligan);
+    $("#handDraw").addEventListener("click", handDraw);
     $("#btnClear").addEventListener("click", async () => {
       if (!Object.keys(deck().cards).length) return;
       if (!(await confirmBox(`確定清空「${deck().name}」的所有卡片？`))) return;
@@ -1571,11 +1647,13 @@ p{margin:0;font-size:12px;color:#8593c7}
       if (e.key !== "Escape") return;
       if (zoomOpen) closeZoom(); // 先關放大的卡圖，再按一次才關卡片視窗
       else if (modalKey) closeCard();
+      else if (hand.open) closeHand();
     });
     window.addEventListener("popstate", () => {
       if (zoomPopSkip) { zoomPopSkip = false; return; }
       if (zoomOpen) closeZoom(true);
       else if (modalKey) closeCard(true);
+      else if (hand.open) closeHand(true);
     });
     // 使用說明
     let helpOpen = false;
