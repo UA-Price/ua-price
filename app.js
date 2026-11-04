@@ -560,6 +560,32 @@
     if (!wasOpen) { try { history.pushState({ uaModal: 1 }, ""); } catch (e) {} }
     setTimeout(() => $("#cmClose").focus(), 30);
   }
+  /* ---------- 卡圖全螢幕放大 ---------- */
+  let zoomOpen = false, zoomPopSkip = false;
+  function openZoom(src, name) {
+    if (!src) return;
+    let z = $("#cardZoom");
+    if (!z) {
+      z = el("div", { id: "cardZoom", class: "card-zoom", role: "dialog", "aria-label": "卡圖放大", onclick: () => closeZoom() },
+        el("img", { alt: "", referrerpolicy: "no-referrer" }),
+        el("button", { class: "cm-close", type: "button", "aria-label": "關閉" }, "×"),
+        el("div", { class: "cz-hint", text: "點任何地方關閉" }));
+      document.body.append(z);
+    }
+    const img = z.querySelector("img");
+    img.alt = name || "";
+    img.src = src;
+    z.hidden = false;
+    if (!zoomOpen) { zoomOpen = true; try { history.pushState({ uaZoom: 1 }, ""); } catch (e) {} }
+  }
+  function closeZoom(fromHistory) {
+    if (!zoomOpen) return;
+    zoomOpen = false;
+    const z = $("#cardZoom");
+    if (z) z.hidden = true;
+    // 自己關掉時退一步歷史紀錄；退回來觸發的 popstate 不要順便把卡片視窗也關掉
+    if (!fromHistory && history.state && history.state.uaZoom) { zoomPopSkip = true; try { history.back(); } catch (e) { zoomPopSkip = false; } }
+  }
   function closeCard(fromHistory) {
     if (!modalKey) return;
     modalKey = null;
@@ -575,9 +601,10 @@
     box.textContent = "";
     const list = imgCandidates(c, 0);
     if (list.length) {
-      const img = el("img", { alt: c.name, referrerpolicy: "no-referrer", decoding: "async" });
+      const img = el("img", { alt: c.name, referrerpolicy: "no-referrer", decoding: "async", class: "zoomable", title: "點一下放大" });
       setImgChain(img, list, () => img.replaceWith(el("div", { class: "cm-noimg", text: "無圖" })));
-      box.append(img);
+      img.addEventListener("click", () => openZoom(img.currentSrc || img.src, c.name));
+      box.append(img, el("div", { class: "cm-zoom-hint", text: "點卡圖可以放大" }));
     } else box.append(el("div", { class: "cm-noimg", text: "無圖" }));
     // 名稱
     $("#cmName").textContent = c.name;
@@ -1540,8 +1567,16 @@ p{margin:0;font-size:12px;color:#8593c7}
     ["#results", "#deckList"].forEach((s) => { $(s).addEventListener("click", onRowClick); $(s).addEventListener("keydown", onRowKey); });
     $("#cmClose").addEventListener("click", () => closeCard());
     $("#cardModal").addEventListener("click", (e) => { if (e.target.id === "cardModal") closeCard(); });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalKey) closeCard(); });
-    window.addEventListener("popstate", () => { if (modalKey) closeCard(true); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (zoomOpen) closeZoom(); // 先關放大的卡圖，再按一次才關卡片視窗
+      else if (modalKey) closeCard();
+    });
+    window.addEventListener("popstate", () => {
+      if (zoomPopSkip) { zoomPopSkip = false; return; }
+      if (zoomOpen) closeZoom(true);
+      else if (modalKey) closeCard(true);
+    });
     // 使用說明
     let helpOpen = false;
     const openHelp = () => {
