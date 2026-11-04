@@ -35,6 +35,7 @@
   --hs: #74a2ff;
   --dora: #ffa64d;
   --meru: #ff7ac6;
+  --kpp: #ffd43b;
 
   --radius: 12px;
   color-scheme: dark;
@@ -201,6 +202,7 @@ a { color: #8fc4ff; }
 .offer.hs { --c: var(--hs); }
 .offer.dora { --c: var(--dora); }
 .offer.meru { --c: var(--meru); }
+.offer.kpp { --c: var(--kpp); }
 .offer b { color: var(--ink); font-weight: 700; }
 .offer.best { border-color: var(--ok); background: var(--ok-soft); box-shadow: 0 0 10px rgba(65, 224, 180, .25); }
 .offer.best b { color: var(--ok); }
@@ -404,6 +406,7 @@ body.modal-open { overflow: hidden; }
 .cm-shop.hs { --c: var(--hs); }
 .cm-shop.dora { --c: var(--dora); }
 .cm-shop.meru { --c: var(--meru); }
+.cm-shop.kpp { --c: var(--kpp); }
 .cm-shop.best { border-color: var(--ok); border-left-color: var(--ok); background: rgba(10, 40, 50, .82); box-shadow: 0 0 16px rgba(65, 224, 180, .25); }
 .cm-shop-head { grid-area: head; display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
 .cm-best { font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 99px; background: var(--ok); color: #05261c; }
@@ -489,6 +492,7 @@ body.modal-open { overflow: hidden; }
 .shop-row.hs { --c: var(--hs); }
 .shop-row.dora { --c: var(--dora); }
 .shop-row.meru { --c: var(--meru); }
+.shop-row.kpp { --c: var(--kpp); }
 .shop-row.cheapest { border-color: var(--ok); border-left-color: var(--ok); box-shadow: 0 0 14px rgba(65, 224, 180, .25); }
 .sr-head { grid-area: head; display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .sr-price { grid-area: price; font-size: 22px; font-weight: 800; color: #fff; }

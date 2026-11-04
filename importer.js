@@ -15,8 +15,8 @@
   const SITE_ORIGIN = EXT ? location.origin : new URL(SITE).origin;
   const host = location.host;
   const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
-    : host.includes("merucarduniari") ? "meru" : host.includes("unionarena-tcg.com") ? "colors" : null;
-  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", meru: "メルカード", colors: "官方卡表（卡片資料）" }[shop];
+    : host.includes("merucarduniari") ? "meru" : host.includes("kapaipai") ? "kpp" : host.includes("unionarena-tcg.com") ? "colors" : null;
+  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", meru: "メルカード", kpp: "卡拍拍", colors: "官方卡表（卡片資料）" }[shop];
   // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
   // 遊々亭、Hobby Station 5 秒；ドラゴンスター 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
   const DELAY = shop === "dora" ? 10000 : shop === "colors" ? 2000 : 5000;
@@ -97,7 +97,7 @@
   }
 
   if (!shop) {
-    say("請在遊々亭、Hobby Station、ドラゴンスター、メルカード 或官方卡表的網站上使用這個書籤。");
+    say("請在遊々亭、Hobby Station、ドラゴンスター、メルカード、卡拍拍 或官方卡表的網站上使用這個書籤。");
     return finish(5000);
   }
 
@@ -527,16 +527,27 @@
         return;
       }
     }
+    if (shop === "kpp") return runKpp();
     button("停止", false, () => { cancelled = true; say("停止中…（會把已讀到的先送出）"); });
     let series;
     if (mode === "all" || mode === "new") {
       say("讀取系列清單…");
-      let denied = /Access denied|Attention Required|blocked/i.test(document.title);
-      try {
-        if (!denied) series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, meru: seriesListMeru, colors: seriesListColors }[shop]();
-      } catch (e) {
-        if (e.message === "denied") denied = true;
-        series = [];
+      let denied = false;
+      // 網站剛好在「確認連線／認證」時會讀不到清單：每 30 秒再試一次，最多等 3 分鐘
+      for (let tryNo = 0; tryNo < 7 && !cancelled; tryNo++) {
+        if (tryNo) {
+          say(`等待網站確認連線完成…（第 ${tryNo} / 6 次重試）\n如果商店分頁出現要你操作的驗證，請自己點一下完成。`);
+          await sleep(30000);
+        }
+        denied = /Access denied|Attention Required|blocked/i.test(document.title);
+        if (denied) break;
+        try {
+          series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, meru: seriesListMeru, colors: seriesListColors }[shop]();
+        } catch (e) {
+          if (e.message === "denied") { denied = true; break; }
+          series = [];
+        }
+        if (series && series.length) break;
       }
       if (denied) {
         say(DENIED_MSG);
@@ -546,7 +557,7 @@
       }
       if (!series || !series.length) {
         say("找不到系列清單。請先打開網站首頁或任一系列頁面，再按一次書籤。");
-        reportDone("找不到系列清單（網站可能改版或還在確認連線）", false);
+        reportDone("等了 3 分鐘還是找不到系列清單（網站可能還在確認連線，或改版了）。\n先打開這家網站確認能正常瀏覽，再按一次「開始匯入」。", false);
         btns.textContent = "";
         return finish(8000);
       }
@@ -631,6 +642,53 @@
     afterSent(failedSeries);
   }
 
+  /* ---------- 卡拍拍：網站自己的資料網址一次就有全部 Union Arena 卡的最低價、平均價 ---------- */
+  const KPP_RARE = /^(C|U|R|SR|UR|AP|PR|SP|OBC)(★{0,3})$/; // 只要單卡（不要原盒、全套、異畫等）
+  async function runKpp() {
+    say("卡拍拍：讀取全部 Union Arena 卡片價格…（只讀 1 次）");
+    let list;
+    try {
+      const r = await fetch("/api/card/getAllCardByGame?game=uajp", { credentials: "include" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      list = j && j.data && j.data.list;
+      if (!Array.isArray(list)) throw new Error("格式不對");
+    } catch (e) {
+      const t = "沒辦法讀取卡拍拍的價格（" + e.message + "）。\n可能網站改版了，請跟我說。";
+      say(t);
+      reportDone(t, false);
+      return finish(15000);
+    }
+    for (const c of list) {
+      for (const r of c.rareList || []) {
+        const rare = (r.rare || []).join("");
+        const m = rare.match(KPP_RARE);
+        const price = +r.lowestPrice || 0;
+        if (!m || !(price > 0) || !r.packId || !r.packCardId) continue; // 0 = 目前沒人在賣
+        const num = String(r.packId).toUpperCase() + "/" + String(r.packCardId).toUpperCase();
+        if (!/^[A-Z0-9]+\/[A-Z0-9]+-\d+-(AP)?\d+$/.test(num)) continue;
+        all.push([num, m[2].length, c.nameJp || r.cardName || "", price, 99, "", rare, +r.averagePrice || 0]);
+      }
+    }
+    progress(0.5);
+    // 分批送（每批 2000 筆），最後一批帶完成訊號
+    const N = 2000;
+    let ok = true;
+    for (let i = 0; i < all.length && ok; i += N) {
+      say(`卡拍拍：讀到 ${all.length} 筆，傳送中…（${Math.min(i + N, all.length)} / ${all.length}）`);
+      ok = await send(all.slice(i, i + N), "卡拍拍", i + N >= all.length);
+      progress(0.5 + 0.5 * Math.min(1, (i + N) / all.length));
+    }
+    if (!all.length) ok = await send([], "卡拍拍", true);
+    if (!ok) {
+      const t = `讀到 ${all.length} 筆，但送不到查價之境網站。請確認網站分頁還開著，再試一次。`;
+      say(t);
+      reportDone(t, false);
+      return finish(15000);
+    }
+    afterSent(0);
+  }
+
   async function afterSent(failedSeries) {
     let text = `匯入完成：${all.length} 筆` + (failedSeries ? `（${failedSeries} 個系列讀取失敗）` : "") + (cancelled ? "（中途停止）" : "");
     if (stopReason) text += "\n⚠ " + stopReason;
@@ -653,6 +711,12 @@
     say("官方卡表：匯入每張卡的顏色、必要エナジー、消費 AP\n只抓新作品：只抓還沒抓過的作品（第一次會全部抓，約 30 分鐘；之後通常不到 1 分鐘）。\n全部重新抓：58 個作品約 30 分鐘。");
     button("只抓新作品", true, () => run("new"));
     button("全部重新抓", false, () => run("all"));
+    button("取消", false, () => finish(0));
+    return;
+  }
+  if (shop === "kpp") {
+    say("卡拍拍 價格匯入（台幣）\n只要讀 1 次就有全部 Union Arena 卡的最低價。");
+    button("開始匯入", true, () => run("all"));
     button("取消", false, () => finish(0));
     return;
   }

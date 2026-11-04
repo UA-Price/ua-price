@@ -8,14 +8,17 @@
     hs: { name: "Hobby Station", short: "ホビステ" },
     dora: { name: "ドラゴンスター", short: "ドラスタ" },
     meru: { name: "メルカード", short: "メルカード" },
+    kpp: { name: "卡拍拍", short: "卡拍拍", twd: true }, // 台灣的玩家交易平台，價格是台幣
   };
   const SHOP_BASE = {
     yuyu: "https://yuyu-tei.jp",
     hs: "https://www.hobbystation-single.jp",
     dora: "https://dorasuta.jp",
     meru: "https://www.merucarduniari.jp",
+    kpp: "https://trade.kapaipai.tw",
   };
-  const IMPORT_SHOPS = ["yuyu", "hs", "dora", "meru"];
+  const IMPORT_SHOPS = ["yuyu", "hs", "dora", "meru", "kpp"];
+  const JPY_SHOPS = Object.keys(SHOPS).filter((s) => !SHOPS[s].twd); // 用日幣比價的店
   const DATA_KEYS = [...IMPORT_SHOPS, "colors"]; // 匯入資料的種類：三家價格 + 官方卡表的卡片顏色
   const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片資料）" : SHOPS[k].name);
   const ENERGY_CHIPS = [0, 1, 2, 3, 4, 5, 6, 7]; // 7 代表 7 以上
@@ -33,6 +36,7 @@
     "https://www.hobbystation-single.jp": "hs",
     "https://dorasuta.jp": "dora",
     "https://www.merucarduniari.jp": "meru",
+    "https://trade.kapaipai.tw": "kpp",
     "https://www.unionarena-tcg.com": "colors",
   };
   const OLD_DAYS = 14;          // 匯入超過 14 天的價格標示為「舊」
@@ -56,6 +60,8 @@
     return n;
   };
   const yen = (n) => "¥" + Math.round(n).toLocaleString("ja-JP");
+  const ntd = (n) => "NT$" + Math.round(n).toLocaleString("zh-TW");
+  const money = (shop, n) => (SHOPS[shop] && SHOPS[shop].twd ? ntd(n) : yen(n)); // 卡拍拍顯示台幣
   const imgUrl = (c) => (c.set && c.id && !c.noimg ? `https://card.yuyu-tei.jp/ua/100_140/${c.set}/${c.id}.jpg` : "");
   /* ---------- 卡圖：全部用官方卡表 ----------
      官方的平行卡依序編成 _p1、_p2…，跟星星數不一定一致（例如 ★、★★★ 兩種平行卡會是 _p1、_p2），
@@ -253,8 +259,15 @@
     let url = item[2] || "";
     if (url && !/^https?:/.test(url)) url = SHOP_BASE[shop] + url;
     if (!url && shop === "yuyu" && item[6] && item[7]) url = `https://yuyu-tei.jp/sell/ua/card/${item[6]}/${item[7]}`;
+    if (shop === "kpp") return { shop, p: item[0], s: item[1], url, t: item[4] || 0, rarK: item[5] || "", avg: item[6] || 0 };
     return { shop, p: item[0], s: item[1], url, t: item[4] || 0 };
   }
+  // 卡拍拍的卡片頁網址（從卡號和稀有度組出來，不另外存）
+  const kppUrl = (num, rar) => {
+    const [pack, card] = String(num).split("/");
+    const q = new URLSearchParams({ cardkey: card, rare: rar, pack, packcard: card });
+    return "https://trade.kapaipai.tw/cardredirect/uajp?" + q.toString();
+  };
   const allSets = () => ({ ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
 
   function buildCards() {
@@ -278,7 +291,12 @@
       CARDS.push(c);
     }
     const eff = effImports();
+    let byBaseStar = new Map();
     for (const shop of IMPORT_SHOPS) {
+      if (shop === "kpp") { // 其他店都整理完，才建「卡號後半段＋星數」的索引
+        byBaseStar = new Map();
+        for (const c of CARDS) { const bk = c.base + "|" + (c.stars || 0); (byBaseStar.get(bk) || byBaseStar.set(bk, []).get(bk)).push(c); }
+      }
       const items = (eff[shop] && eff[shop].items) || {};
       for (const [k, item] of Object.entries(items)) {
         let c = BYKEY.get(k);
@@ -296,6 +314,19 @@
           }
           const prev = c.offers.yuyu;
           if (!prev || (item[4] || 0) >= (prev.t || 0)) c.offers.yuyu = offerFrom(item, "yuyu");
+          continue;
+        }
+        if (shop === "kpp") {
+          // 卡拍拍只補價格、不新增卡片；卡號對不上時，用「卡號後半段＋星數」找唯一的那張
+          if (!c) {
+            const [num, st] = k.split("|");
+            const same = byBaseStar.get(baseOf(num) + "|" + st) || [];
+            if (same.length === 1) c = same[0];
+          }
+          if (!c) continue;
+          const o = offerFrom(item, "kpp");
+          o.url = kppUrl(k.split("|")[0], o.rarK);
+          if (!c.offers.kpp || o.p < c.offers.kpp.p) c.offers.kpp = o;
           continue;
         }
         if (!c) {
@@ -329,14 +360,14 @@
 
   // 最貴的店（有庫存的優先；全部售完時才看售完的價格）
   function worstOffer(c) {
-    const all = Object.values(c.offers).filter((o) => o && o.p > 0);
+    const all = Object.values(c.offers).filter((o) => o && o.p > 0 && !SHOPS[o.shop].twd);
     if (!all.length) return null;
     const inStock = all.filter((o) => o.s !== 0);
     const pool = inStock.length ? inStock : all;
     return pool.reduce((a, b) => (b.p > a.p ? b : a));
   }
   function bestOffer(c) {
-    const all = Object.values(c.offers).filter((o) => o && o.p > 0);
+    const all = Object.values(c.offers).filter((o) => o && o.p > 0 && !SHOPS[o.shop].twd);
     if (!all.length) return null;
     const inStock = all.filter((o) => o.s !== 0);
     const pool = inStock.length ? inStock : all;
@@ -472,7 +503,7 @@
     filtered = CARDS.filter((c) => {
       if (set && c.set !== set) return false;
       if (rar && c.rar !== rar) return false;
-      if (onlyStock && !(c.best && c.best.s !== 0)) return false;
+      if (onlyStock && !(c.best && c.best.s !== 0) && !c.offers.kpp) return false;
       if (colors.size && !colors.has(c.color)) return false;
       if (selectedEnergy.size && !(c.energy != null && selectedEnergy.has(Math.min(c.energy, 7)))) return false;
       if (selectedAP.size && !(c.ap != null && selectedAP.has(c.ap))) return false;
@@ -515,6 +546,7 @@
     hs: (q) => `https://www.hobbystation-single.jp/ua/product/list?match_type=1&search_word=${encodeURIComponent(q)}`,
     dora: (q) => `https://dorasuta.jp/union-arena/product-list?kw=${encodeURIComponent(q)}`,
     meru: () => "https://www.merucarduniari.jp/page/pack", // 搜尋網址還沒確認，先開「パック別」
+    kpp: () => "https://trade.kapaipai.tw/trade",
   };
   let modalKey = null;
   function openCard(k) {
@@ -562,16 +594,16 @@
     for (const shop of Object.keys(SHOPS)) {
       const o = c.offers[shop];
       const isBest = o && c.best === o && o.s !== 0;
-      const stockTxt = !o ? "" : o.s === 0 ? "售完" : o.s > 0 && o.s < 99 ? `剩 ${o.s} 張` : o.s === 99 ? "有庫存" : "";
+      const stockTxt = !o ? "" : shop === "kpp" ? (o.avg ? `平均 ${ntd(o.avg)}・最低價` : "目前最低價") : o.s === 0 ? "售完" : o.s > 0 && o.s < 99 ? `剩 ${o.s} 張` : o.s === 99 ? "有庫存" : "";
       const when = o && o.t ? `${new Date(o.t).toLocaleDateString()} 匯入` + (ageText(o.t) ? "・舊" : "") : "";
       const link = o && o.url
         ? el("a", { class: "btn small cm-go", href: o.url, target: "_blank", rel: "noopener" }, `前往${SHOPS[shop].short} ↗`)
-        : el("a", { class: "btn small ghost cm-go", href: SEARCH_URL[shop](c.base), target: "_blank", rel: "noopener" }, shop === "meru" ? `前往${SHOPS[shop].short} ↗` : `在${SHOPS[shop].short}搜尋 ↗`);
+        : el("a", { class: "btn small ghost cm-go", href: SEARCH_URL[shop](c.base), target: "_blank", rel: "noopener" }, shop === "meru" || shop === "kpp" ? `前往${SHOPS[shop].short} ↗` : `在${SHOPS[shop].short}搜尋 ↗`);
       shops.append(el("div", { class: `cm-shop ${shop}${isBest ? " best" : ""}${o && o.s === 0 ? " sold" : ""}${o ? "" : " none"}` },
         el("div", { class: "cm-shop-head" },
           el("span", { class: "cm-shop-name", text: SHOPS[shop].name }),
           isBest ? el("span", { class: "cm-best", text: "最便宜" }) : null),
-        el("div", { class: "cm-price", text: o ? yen(o.p) : "沒有資料" }),
+        el("div", { class: "cm-price", text: o ? money(shop, o.p) : "沒有資料" }),
         el("div", { class: "cm-stock" }, stockTxt, stockTxt && when ? " ・ " : "", when),
         link));
     }
@@ -606,7 +638,7 @@
         class: `offer ${shop}${isBest ? " best" : ""}${o.s === 0 ? " sold" : ""}`,
         href: o.url || "#", target: "_blank", rel: "noopener",
         title: `${SHOPS[shop].name}${o.t ? "（匯入於 " + new Date(o.t).toLocaleDateString() + "）" : ""}`,
-      }, SHOPS[shop].short, " ", el("b", { text: yen(o.p) }), stockTxt ? " " + stockTxt : "", old ? el("span", { class: "old", text: " 舊" }) : null));
+      }, SHOPS[shop].short, " ", el("b", { text: money(shop, o.p) }), stockTxt ? " " + stockTxt : "", old ? el("span", { class: "old", text: " 舊" }) : null));
     }
     if (!wrap.childNodes.length) wrap.append(el("span", { class: "c-meta", text: "目前沒有價格" }));
     return wrap;
@@ -716,7 +748,7 @@
       }, label))));
     const shopBoxes = () => el("div", { class: "shops" }, Object.entries(SHOPS).map(([s, info]) =>
       el("div", { class: "shop" }, info.short,
-        el("b", { text: a.shopTotals[s].sum ? yen(a.shopTotals[s].sum) : "—" }),
+        el("b", { text: a.shopTotals[s].sum ? money(s, a.shopTotals[s].sum) : "—" }),
         a.shopTotals[s].miss && entries.length ? el("span", { class: "miss", text: `缺 ${a.shopTotals[s].miss} 種` }) : "整副買得到")));
     if (totalMode === "high") {
       tot.append(
@@ -725,7 +757,7 @@
         el("div", { class: "sublbl", text: `最便宜的組合是 ${yen(a.best)}，差 ${yen(a.worst - a.best)}` }),
         shopBoxes());
     } else if (totalMode === "shop") {
-      const complete = Object.keys(SHOPS).filter((s) => !a.shopAll[s].none && a.shopAll[s].sum > 0);
+      const complete = JPY_SHOPS.filter((s) => !a.shopAll[s].none && a.shopAll[s].sum > 0); // 台幣的卡拍拍不跟日幣比
       const cheapestShop = complete.reduce((x, s) => (!x || a.shopAll[s].sum < a.shopAll[x].sum ? s : x), null);
       tot.append(
         el("div", { class: "lbl", text: "整副都在同一家買，各要多少" }),
@@ -738,7 +770,7 @@
             el("div", { class: "sr-head" },
               el("span", { class: "sr-name", text: info.name }),
               s === cheapestShop ? el("span", { class: "cm-best", text: complete.length === 1 ? "只有這家有齊" : "有齊的裡面最便宜" }) : null),
-            el("div", { class: "sr-price", text: t.sum ? yen(t.sum) : "—" }),
+            el("div", { class: "sr-price", text: t.sum ? money(s, t.sum) : "—" }),
             el("div", { class: "sr-note" + (notes.length ? " warn" : ""), text: notes.length ? notes.join("・") : "整副都有價格" }));
         })));
     } else {
@@ -812,13 +844,14 @@
   /* ======================= 匯出 ======================= */
   // 依目前選的算法，產生合計的文字
   function totalLines(a) {
-    if (totalMode === "high") return [`合計（每張取最高價）：${yen(a.worst)}`];
+    const kppLine = a.shopAll.kpp && a.shopAll.kpp.sum ? [`卡拍拍（台幣）整副：${ntd(a.shopAll.kpp.sum)}${a.shopAll.kpp.none ? `（缺 ${a.shopAll.kpp.none} 種）` : ""}`] : [];
+    if (totalMode === "high") return [`合計（每張取最高價）：${yen(a.worst)}`, ...kppLine];
     if (totalMode === "shop") return Object.entries(SHOPS).map(([s, info]) => {
       const t = a.shopAll[s];
       const notes = [t.none ? `缺 ${t.none} 種` : "", t.sold ? `售完 ${t.sold} 種` : ""].filter(Boolean).join("、");
-      return `${info.name} 整副：${t.sum ? yen(t.sum) : "—"}${notes ? `（${notes}）` : ""}`;
+      return `${info.name} 整副：${t.sum ? money(s, t.sum) : "—"}${notes ? `（${notes}）` : ""}`;
     });
-    return [`合計（每張挑最便宜）：${yen(a.best)}`];
+    return [`合計（每張挑最便宜）：${yen(a.best)}`, ...kppLine];
   }
   function deckText() {
     const entries = deckEntries();
@@ -1038,6 +1071,10 @@ p{margin:0;font-size:12px;color:#8593c7}
         const okSet = /^[a-z0-9]{2,12}$/.test(set || "") && /^\d{1,8}$/.test(id || "");
         if (okSet && path === `/sell/ua/card/${set}/${id}`) row[2] = ""; // 可以從系列代碼和編號還原
         row.push(String(rar || "").slice(0, 12), okSet ? set : "", okSet ? id : "", it[9] ? 1 : 0);
+      }
+      if (shop === "kpp") { // 卡拍拍：網址用卡號和稀有度組，不存；另外記稀有度原文和平均價
+        row[2] = "";
+        row.push(String(it[6] || "").slice(0, 12), Math.max(0, Math.round(+it[7] || 0)));
       }
       box.items[k] = row;
       count++;
