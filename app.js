@@ -1021,9 +1021,11 @@ p{margin:0;font-size:12px;color:#8593c7}
   async function exportImage() {
     const entries = deckEntries();
     if (!entries.length) return toast("卡組是空的");
-    // 先開好新分頁（要在按下的當下開，瀏覽器才不會擋），圖片產生好再放進去
+    // 手機（特別是加到主畫面的 App 模式）開新分頁會退不回來，所以手機改成在本頁顯示
+    const inPage = isMobileLike();
+    // 電腦：先開好新分頁（要在按下的當下開，瀏覽器才不會擋），圖片產生好再放進去
     let win = null;
-    try { win = window.open("", "_blank"); } catch (e) { win = null; }
+    if (!inPage) { try { win = window.open("", "_blank"); } catch (e) { win = null; } }
     if (win) {
       try {
         win.document.open();
@@ -1093,13 +1095,14 @@ p{margin:0;font-size:12px;color:#8593c7}
       return toast("圖片產生失敗");
     }
     const fileName = `${deck().name}.png`;
+    if (inPage) { openImageView(blob, fileName); return; }
     // 新分頁：整頁只顯示這張圖，下面附下載按鈕
     if (win && !win.closed) {
       const dataUrl = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
       try {
         win.document.open();
         win.document.write(imagePageHtml(deck().name,
-          `<img src="${dataUrl}" alt="${escHtml(deck().name)}"><a href="${dataUrl}" download="${escHtml(fileName)}">下載圖片</a><p>手機可以直接長按圖片儲存</p>`));
+          `<img src="${dataUrl}" alt="${escHtml(deck().name)}"><div><a href="${dataUrl}" download="${escHtml(fileName)}">下載圖片</a> <a href="#" onclick="window.close();return false" style="background:#1a2470">關閉</a></div><p>也可以直接關掉這個分頁</p>`));
         win.document.close();
         toast("已在新分頁開啟圖片");
         return;
@@ -1114,6 +1117,54 @@ p{margin:0;font-size:12px;color:#8593c7}
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     toast("瀏覽器擋了新分頁，已改成直接下載");
   }
+  /* ---------- 手機：卡組圖片在本頁顯示（有關閉鍵、返回鍵也能關） ---------- */
+  function isMobileLike() {
+    const standalone = window.navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+    const touch = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    return standalone || (touch && window.innerWidth < 900);
+  }
+  let imgViewOpen = false, imgViewUrl = "";
+  function openImageView(blob, fileName) {
+    let v = $("#imgView");
+    if (!v) {
+      v = el("div", { id: "imgView", class: "img-view", role: "dialog", "aria-label": "卡組圖片" },
+        el("button", { class: "cm-close", type: "button", "aria-label": "關閉", onclick: () => closeImageView() }, "×"),
+        el("div", { class: "iv-scroll" }, el("img", { alt: "" })),
+        el("div", { class: "iv-btns" },
+          el("button", { class: "btn primary iv-save", type: "button" }, "儲存圖片"),
+          el("button", { class: "btn", type: "button", onclick: () => closeImageView() }, "關閉")),
+        el("p", { class: "hint iv-hint", text: "也可以長按圖片儲存到相簿" }));
+      document.body.append(v);
+    }
+    if (imgViewUrl) URL.revokeObjectURL(imgViewUrl);
+    imgViewUrl = URL.createObjectURL(blob);
+    const img = v.querySelector("img");
+    img.src = imgViewUrl;
+    img.alt = fileName;
+    const file = new File([blob], fileName, { type: "image/png" });
+    const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+    v.querySelector(".iv-save").onclick = async () => {
+      if (canShare) { // iPhone：叫出分享選單，可以選「儲存影像」
+        try { await navigator.share({ files: [file] }); } catch (e) {}
+        return;
+      }
+      const a = el("a", { href: imgViewUrl, download: fileName });
+      document.body.append(a); a.click(); a.remove();
+    };
+    v.hidden = false;
+    document.body.classList.add("modal-open");
+    toast("圖片好了");
+    if (!imgViewOpen) { imgViewOpen = true; try { history.pushState({ uaImg: 1 }, ""); } catch (e) {} }
+  }
+  function closeImageView(fromHistory) {
+    if (!imgViewOpen) return;
+    imgViewOpen = false;
+    const v = $("#imgView");
+    if (v) v.hidden = true;
+    document.body.classList.remove("modal-open");
+    if (!fromHistory && history.state && history.state.uaImg) { zoomPopSkip = true; try { history.back(); } catch (e) { zoomPopSkip = false; } }
+  }
+
   function wrapText(g, text, x, y, maxW, lh, maxLines) {
     let line = "", n = 0;
     for (const ch of text) {
@@ -1695,13 +1746,15 @@ p{margin:0;font-size:12px;color:#8593c7}
     $("#cardModal").addEventListener("click", (e) => { if (e.target.id === "cardModal") closeCard(); });
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
-      if (zoomOpen) closeZoom(); // 先關放大的卡圖，再按一次才關卡片視窗
+      if (imgViewOpen) closeImageView();
+      else if (zoomOpen) closeZoom(); // 先關放大的卡圖，再按一次才關卡片視窗
       else if (modalKey) closeCard();
       else if (hand.open) closeHand();
     });
     window.addEventListener("popstate", () => {
       if (zoomPopSkip) { zoomPopSkip = false; return; }
-      if (zoomOpen) closeZoom(true);
+      if (imgViewOpen) closeImageView(true);
+      else if (zoomOpen) closeZoom(true);
       else if (modalKey) closeCard(true);
       else if (hand.open) closeHand(true);
     });
