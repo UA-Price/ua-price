@@ -280,12 +280,12 @@
       const blockers = Dp.front.filter((s) => s && !s.rest);
       const targets = Dp.front.filter(Boolean);
       box.append(el("h3", { text: AT.snipe ? `狙い撃ち：選要攻擊${who(Dp)}的哪張角色` : `${who(A)}的「${nameOf(AT.uid)}」攻擊！${who(Dp)}要防禦嗎？` }));
-      const atkRow = el("ul", { class: "py-poprow" }, popCard(AT.uid));
+      const atkRow = el("ul", { class: "py-poprow" }, popCard(AT.uid, { bp: true }));
       box.append(el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: "攻擊角色" }), atkRow));
       const list = AT.snipe ? targets : blockers;
       const row = el("ul", { class: "py-poprow" });
       list.forEach((s) => row.append(el("li", { class: "py-pick" },
-        popCard(s.uid, { rest: s.rest }),
+        popCard(s.uid, { rest: s.rest, bp: true }),
         el("button", { type: "button", class: "btn small primary", onclick: () => { AT.snipe ? chooseTarget(s.uid, false) : chooseTarget(s.uid, true); } }, AT.snipe ? "攻擊這張" : "用這張防禦"))));
       if (!list.length) row.append(el("li", { class: "py-empty", text: AT.snipe ? "對手前線沒有角色" : "對手前線沒有活動的角色可以防禦" }));
       box.append(el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: AT.snipe ? `${who(Dp)}前線的角色` : `${who(Dp)}可以防禦的角色（前線・活動）` }), row));
@@ -298,15 +298,35 @@
       box.append(btns);
     } else {
       const T = AT.target;
+      const mod = AT.mod || (AT.mod = { a: 0, d: 0 });
+      const ba = card(AT.uid).bp, bd = card(T).bp;
+      const known = Number.isInteger(ba) && Number.isInteger(bd);
+      const ta = (ba || 0) + mod.a, td = (bd || 0) + mod.d;
+      const adj = (side) => el("div", { class: "py-adj" }, ...[-1000, -500, 500, 1000].map((d) => el("button", {
+        type: "button", class: "py-chip", onclick: () => { mod[side] += d; renderAttack(); },
+      }, (d > 0 ? "+" : "−") + Math.abs(d))));
+      const bpLine = (b, m, total) => el("div", { class: "py-bpline" },
+        Number.isInteger(b) ? el("b", { text: `BP ${total.toLocaleString()}` }) : el("b", { text: "沒有 BP 資料" }),
+        m ? el("span", { class: "py-sub", text: `（${b} ${m > 0 ? "+" : "−"} ${Math.abs(m)}）` }) : null);
       box.append(el("h3", { text: `對戰：${nameOf(AT.uid)} vs ${nameOf(T)}` }));
       box.append(el("div", { class: "py-battle" },
-        el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: `${who(A)}（攻擊）` }), el("ul", { class: "py-poprow" }, popCard(AT.uid))),
+        el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: `${who(A)}（攻擊）` }), el("ul", { class: "py-poprow" }, popCard(AT.uid)), bpLine(ba, mod.a, ta), adj("a")),
         el("b", { class: "py-vs-mark", text: "VS" }),
-        el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: `${who(Dp)}（${AT.blocked ? "防禦" : "被攻擊"}）` }), el("ul", { class: "py-poprow" }, popCard(T)))));
-      box.append(el("p", { class: "py-sub", text: "比較雙方的 BP（加上效果的增減）：攻擊方 BP 大於或等於對方 → 攻擊方勝，被攻擊的角色退場；攻擊方 BP 比較小 → 防禦方勝，攻擊角色不會退場。" }));
-      box.append(el("div", { class: "py-row py-life-btns" },
-        el("button", { type: "button", class: "btn", onclick: () => { log(`對戰結果：${who(Dp)}的「${nameOf(T)}」勝，${nameOf(AT.uid)} 不會退場`); AT = null; renderLife(); render(); } }, "防禦方勝"),
-        el("button", { type: "button", class: "btn primary", onclick: () => { snap(); toPile(T, "outside"); log(`對戰結果：${who(A)}的「${nameOf(AT.uid)}」勝，${who(Dp)}的「${nameOf(T)}」退場`); AT = null; renderLife(); render(); } }, "攻擊方勝（對方角色退場）")));
+        el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: `${who(Dp)}（${AT.blocked ? "防禦" : "被攻擊"}）` }), el("ul", { class: "py-poprow" }, popCard(T)), bpLine(bd, mod.d, td), adj("d"))));
+      const atkWins = known ? ta >= td : null;
+      box.append(el("p", { class: "py-sub", text: known
+        ? `攻擊方 BP ${ta.toLocaleString()} ${ta >= td ? "≥" : "<"} 防禦方 BP ${td.toLocaleString()} → ${ta >= td ? "攻擊方勝，被攻擊的角色退場" : "防禦方勝，攻擊角色不會退場"}。有效果改變 BP 的話，用上面的 ± 按鈕調整。`
+        : "有一方沒有 BP 資料（請先用擴充功能匯入卡拍拍），請看卡片自己判斷：攻擊方 BP 大於或等於對方 → 攻擊方勝。" }));
+      const winA = () => { snap(); toPile(T, "outside"); log(`對戰結果：${who(A)}的「${nameOf(AT.uid)}」${known ? `（BP ${ta}）` : ""}勝，${who(Dp)}的「${nameOf(T)}」${known ? `（BP ${td}）` : ""}退場`); AT = null; renderLife(); render(); };
+      const winD = () => { log(`對戰結果：${who(Dp)}的「${nameOf(T)}」${known ? `（BP ${td}）` : ""}勝，${nameOf(AT.uid)}${known ? `（BP ${ta}）` : ""} 不會退場`); AT = null; renderLife(); render(); };
+      const row = el("div", { class: "py-row py-life-btns" });
+      if (atkWins === null) row.append(
+        el("button", { type: "button", class: "btn", onclick: winD }, "防禦方勝"),
+        el("button", { type: "button", class: "btn primary", onclick: winA }, "攻擊方勝（對方角色退場）"));
+      else row.append(
+        el("button", { type: "button", class: "btn small", title: "效果造成不同結果時才用", onclick: atkWins ? winD : winA }, atkWins ? "改成防禦方勝" : "改成攻擊方勝"),
+        el("button", { type: "button", class: "btn primary", onclick: atkWins ? winA : winD }, atkWins ? `確定：攻擊方勝（${nameOf(T)} 退場）` : "確定：防禦方勝"));
+      box.append(row);
     }
     w.hidden = false;
   }
@@ -451,7 +471,7 @@
     const c = card(uid);
     const P = PL(uid);
     const mine = P.idx === S.cur;
-    const info = [who(P), c.num, c.color || "", Number.isInteger(c.energy) ? `能源 ${c.energy}` : "", Number.isInteger(c.ap) ? `AP ${c.ap}` : ""].filter(Boolean).join("・");
+    const info = [who(P), c.num, c.color || "", Number.isInteger(c.energy) ? `能源 ${c.energy}` : "", Number.isInteger(c.ap) ? `AP ${c.ap}` : "", Number.isInteger(c.bp) ? `BP ${c.bp}` : ""].filter(Boolean).join("・");
     const zoom = { label: "放大看卡", run: () => { const u = UA.officialList(c)[0]; if (u) UA.openZoom(u, c.name); } };
     const items = [];
     if (zone === "hand") {
@@ -534,7 +554,7 @@
   }
 
   /* ---------- 卡片元素＋拖曳 ---------- */
-  function cardEl(uid, { rest = false, back = false, badge = "", onclick, cls = "", drag = "", drop = null } = {}) {
+  function cardEl(uid, { rest = false, back = false, badge = "", onclick, cls = "", drag = "", drop = null, bp = false } = {}) {
     const c = card(uid);
     const li = el("li", { class: `py-card ${rest ? "rest" : ""} ${back ? "back" : ""} ${drag ? "draggable" : ""} ${cls}`, title: back ? "" : c.name });
     if (drop) { li.dataset.drop = drop.zone; li.dataset.slot = drop.slot; li.dataset.owner = drop.owner; }
@@ -550,6 +570,7 @@
     }
     li.append(inner);
     if (badge) li.append(el("span", { class: "py-badge", text: badge }));
+    if (bp && Number.isInteger(c.bp) && !back) li.append(el("span", { class: "py-bpv", text: c.bp >= 1000 ? (c.bp / 1000).toFixed(c.bp % 1000 ? 1 : 0) + "k" : String(c.bp), title: `BP ${c.bp}` }));
     if (onclick) {
       li.tabIndex = 0;
       li.addEventListener("click", onclick);
@@ -742,7 +763,7 @@
     if (!active) {
       for (const line of ["front", "energy"]) {
         const row = el("ul", { class: "py-mini" });
-        P[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, badge: s.under && s.under.length ? "突" : "", onclick: () => cardMenu(s.uid, line) }) : el("li", { class: "py-slot" })));
+        P[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, badge: s.under && s.under.length ? "突" : "", onclick: () => cardMenu(s.uid, line), bp: true }) : el("li", { class: "py-slot" })));
         box.append(el("div", { class: "py-zone mini" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
       }
     }
@@ -774,7 +795,7 @@
       const row = el("ul", { class: `py-line ${line}`, "data-drop": line, "data-owner": P.idx });
       P[line].forEach((s, i) => {
         if (!s) row.append(el("li", { class: "py-slot", "data-drop": line, "data-slot": i, "data-owner": P.idx }));
-        else row.append(cardEl(s.uid, { rest: s.rest, badge: s.under && s.under.length ? "突襲" : "", onclick: () => cardMenu(s.uid, line), drag: line, drop: { zone: line, slot: i, owner: P.idx } }));
+        else row.append(cardEl(s.uid, { rest: s.rest, badge: s.under && s.under.length ? "突襲" : "", onclick: () => cardMenu(s.uid, line), drag: line, drop: { zone: line, slot: i, owner: P.idx }, bp: true }));
       });
       main.append(el("div", { class: "py-zone" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
     }

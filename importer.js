@@ -488,6 +488,7 @@
   let doneTitles = []; // 官方卡表：這一批已經完整抓完的作品
   async function send(items, label, final) {
     const payload = { type: "ua-import", shop, batch: newBatch(), label, final, items, sets: shop === "yuyu" ? sets : undefined };
+    if (shop === "kpp" && final) payload.bp = kppBP; // BP 只在最後一批送一次
     if (shop === "colors") payload.titles = doneTitles.slice();
     const resp = await request(payload);
     if (resp && shop === "colors") doneTitles = [];
@@ -644,6 +645,7 @@
 
   /* ---------- 卡拍拍：網站自己的資料網址一次就有全部 Union Arena 卡的最低價、平均價 ---------- */
   const KPP_RARE = /^(C|U|R|SR|UR|AP|PR|SP|OBC)(★{0,3})$/; // 只要單卡（不要原盒、全套、異畫等）
+  const kppBP = {};
   async function runKpp() {
     say("卡拍拍：讀取全部 Union Arena 卡片價格…（只讀 1 次）");
     let list;
@@ -660,6 +662,10 @@
       return finish(15000);
     }
     for (const c of list) {
+      // 順便記下每張卡的 BP（tag4），練習對戰自動比大小用
+      const gk = String(c.globalKey || "").toUpperCase();
+      const bpv = parseInt(c.tag4, 10);
+      if (/^[A-Z0-9]+-\d+-(AP)?\d+$/.test(gk) && bpv >= 0 && bpv < 100000) kppBP[gk] = bpv;
       for (const r of c.rareList || []) {
         const rare = (r.rare || []).join("");
         const m = rare.match(KPP_RARE);

@@ -260,6 +260,8 @@
       if (Object.keys(sets).length) out[shop].sets = sets;
       const titles = { ...((x && x.titles) || {}), ...((y && y.titles) || {}) }; // 官方卡表已抓完的作品
       if (Object.keys(titles).length) out[shop].titles = titles;
+      const bp = { ...((x && x.bp) || {}), ...((y && y.bp) || {}) }; // 卡拍拍附帶的 BP
+      if (Object.keys(bp).length) out[shop].bp = bp;
     }
     return out;
   }
@@ -355,7 +357,9 @@
     }
     VARIANTS = new Map();
     const colorItems = (eff.colors && eff.colors.items) || {};
+    const bpMap = (eff.kpp && eff.kpp.bp) || {};
     for (const c of CARDS) {
+      c.bp = Number.isInteger(bpMap[c.base]) ? bpMap[c.base] : null; // BP（卡拍拍資料）
       const ci = colorItems[c.num];
       c.color = ci && COLOR_INFO[ci[0]] ? ci[0] : "";
       c.energy = ci && Number.isInteger(ci[2]) ? ci[2] : null; // 必要エナジー
@@ -697,6 +701,7 @@
       c.color ? el("span", { class: "cm-color", style: `--cc: ${COLOR_INFO[c.color].hex}`, text: COLOR_INFO[c.color].label + "色" }) : "",
       c.energy != null ? el("span", { class: "cm-cost", text: `必要エナジー ${c.energy}` }) : "",
       c.ap != null ? el("span", { class: "cm-cost", text: `消費 AP ${c.ap}` }) : "",
+      c.bp != null ? el("span", { class: "cm-cost", text: `BP ${c.bp}` }) : "",
       c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, SETNAMES[c.set] ? el("span", { class: "cm-set", text: SETNAMES[c.set] }) : "");
     // 三家價格（由上到下）
     const shops = $("#cmShops");
@@ -1198,10 +1203,15 @@ p{margin:0;font-size:12px;color:#8593c7}
     saveImports("colors");
     return count;
   }
-  function mergeImport(shop, items, sets, titles) {
+  function mergeImport(shop, items, sets, titles, bp) {
     if (shop === "colors") return mergeColors(items, titles);
     const now = Date.now();
     const box = (imports[shop] = imports[shop] || { items: {} });
+    if (shop === "kpp" && bp && typeof bp === "object") { // 卡拍拍附帶的 BP：卡號後半段 → BP
+      const clean = {};
+      for (const [k, v] of Object.entries(bp)) if (/^[A-Z0-9]+-\d+-(AP)?\d+$/.test(k) && Number.isInteger(v) && v >= 0 && v < 100000) clean[k] = v;
+      if (Object.keys(clean).length) box.bp = clean;
+    }
     if (shop === "yuyu" && sets && typeof sets === "object") {
       box.sets = box.sets || {};
       for (const [code, name] of Object.entries(sets)) {
@@ -1295,7 +1305,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     await importsReady; // 確保先載入舊資料再合併
     if (seenBatches.has(d.batch)) return reply({ type: "ua-done", batch: d.batch });
     seenBatches.add(d.batch);
-    const n = mergeImport(shop, Array.isArray(d.items) ? d.items : [], d.sets, d.titles);
+    const n = mergeImport(shop, Array.isArray(d.items) ? d.items : [], d.sets, d.titles, d.bp);
     importCounts[shop] = (importCounts[shop] || 0) + n;
     reply({ type: "ua-done", batch: d.batch, count: n });
     clearHash();
