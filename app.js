@@ -1585,10 +1585,31 @@ p{margin:0;font-size:12px;color:#8593c7}
   /* ======================= 畫面切換與事件 ======================= */
   function switchView(v) {
     // 只換掉 view-xxx，保留 admin、modal-open 等其他狀態
-    document.body.classList.remove("view-search", "view-deck", "view-settings");
+    if (v === "play" && !isAdmin()) v = "search"; // 對戰測試中：只給管理端
+    document.body.classList.remove("view-search", "view-deck", "view-settings", "view-play");
+    if (v === "play") renderPlayPanel();
     document.body.classList.add("view-" + v);
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === v));
     window.scrollTo({ top: 0 });
+  }
+
+  function renderPlayPanel() {
+    const fill = (sel, keep) => {
+      const old = keep || sel.value;
+      sel.textContent = "";
+      for (const d of decks) sel.append(el("option", { value: d.id, text: d.name }));
+      sel.value = decks.some((d) => d.id === old) ? old : currentId;
+    };
+    fill($("#playDeck"), $("#playDeck").value || currentId);
+    fill($("#playDeckB"), $("#playDeckB").value || currentId);
+    const info = (id) => {
+      const a = analyze(entriesOf(id));
+      return { n: a.main, t: `主卡組 ${a.main} 張` + (a.main === 50 ? "（符合規則）" : a.main < 15 ? "，至少要 15 張" : "（正式規則要 50 張，還是可以練習）") };
+    };
+    const A = info($("#playDeck").value), B = info($("#playDeckB").value);
+    $("#playInfo").textContent = `玩家 A：${A.t}`;
+    $("#playInfoB").textContent = `玩家 B：${B.t}`;
+    $("#btnPlay").disabled = A.n < 15 || B.n < 15;
   }
 
   async function loadRate(force) {
@@ -1687,7 +1708,9 @@ p{margin:0;font-size:12px;color:#8593c7}
     });
     $("#btnCheapest").addEventListener("click", swapToCheapest);
     $("#btnHand").addEventListener("click", openHand);
-    $("#btnPlay").addEventListener("click", () => { if (window.UAPlay && isAdmin()) UAPlay.start(); }); // 測試中：只給管理端
+    $("#btnPlay").addEventListener("click", () => { if (window.UAPlay && isAdmin()) UAPlay.start($("#playDeck").value, $("#playDeckB").value); }); // 測試中：只給管理端
+    $("#playDeck").addEventListener("change", renderPlayPanel);
+    $("#playDeckB").addEventListener("change", renderPlayPanel);
     $("#handClose").addEventListener("click", () => closeHand());
     $("#handModal").addEventListener("click", (e) => { if (e.target.id === "handModal") closeHand(); });
     $("#handNew").addEventListener("click", handNewGame);
@@ -1874,7 +1897,15 @@ p{margin:0;font-size:12px;color:#8593c7}
   }
 
   // 給練習對戰桌（play.js）用的共用工具
-  window.UA = { $, el, toast, deckEntries, isAP, imgCandidates, officialList, setImgChain, openZoom, deckName: () => deck().name };
+  const entriesOf = (id) => {
+    const d = decks.find((x) => x.id === id) || deck();
+    return Object.entries(d.cards).map(([k, q]) => ({ c: cardFor(k), q }));
+  };
+  window.UA = {
+    $, el, toast, deckEntries, isAP, imgCandidates, officialList, setImgChain, openZoom,
+    deckName: () => deck().name, entriesOf,
+    deckNameOf: (id) => (decks.find((x) => x.id === id) || deck()).name,
+  };
 
   init();
 })();

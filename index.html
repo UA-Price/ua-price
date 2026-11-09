@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-180.png?v=1">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="查價之境">
-<link rel="stylesheet" href="style.css?v=20261109a">
+<link rel="stylesheet" href="style.css?v=20261109d">
 </head>
 <body class="view-search">
 
@@ -38,6 +38,7 @@
   <nav class="tabs" role="tablist">
     <button data-view="search" class="tab active" role="tab">找卡</button>
     <button data-view="deck" class="tab" role="tab">卡組 <span id="deckBadge" class="badge">0</span></button>
+    <button data-view="play" class="tab admin-only" role="tab">對戰<span class="tab-beta">測試</span></button>
     <button data-view="settings" class="tab" role="tab"><span class="admin-only">匯入・設定</span><span class="viewer-only">價格資料</span></button>
   </nav>
   <div class="top-btns">
@@ -96,7 +97,6 @@
 
     <div class="deck-tools">
       <button id="btnHand" class="btn small primary">測試起手</button>
-      <button id="btnPlay" class="btn small primary admin-only" title="測試中：只有管理端看得到">練習對戰（測試中）</button>
       <button id="btnCheapest" class="btn small">全部換成最便宜版本</button>
       <button id="btnClear" class="btn small ghost">清空</button>
     </div>
@@ -117,6 +117,31 @@
   </section>
 
   <!-- ========== 匯入・設定 ========== -->
+  <section id="panelPlay" class="panel panel-play admin-only">
+    <div class="block">
+    <h3>練習對戰 <span class="tab-beta">測試中</span></h3>
+    <p class="hint">玩家 A、B 輪流的對戰桌（你一個人操作兩邊），照官方規則的回合流程進行；卡片效果、防禦和 BP 比較請自己判斷。目前只有管理端看得到。</p>
+    <div class="play-picks">
+      <label class="play-pick">玩家 A 的卡組
+        <select id="playDeck" aria-label="玩家 A 的卡組"></select>
+        <span id="playInfo" class="play-info"></span>
+      </label>
+      <label class="play-pick">玩家 B 的卡組
+        <select id="playDeckB" aria-label="玩家 B 的卡組"></select>
+        <span id="playInfoB" class="play-info"></span>
+      </label>
+    </div>
+    <button id="btnPlay" class="btn primary play-start" type="button">開始練習對戰</button>
+    <ul class="play-notes">
+      <li>開局：決定誰先攻 → 先攻玩家先決定換不換手牌，再換後攻玩家 → 雙方生命區各放 7 張。</li>
+      <li>畫面中間是「目前回合玩家」的場地和手牌；左邊是玩家 A、右邊是玩家 B 的資訊（生命、牌庫、場外、移除區、AP），對手的前線也看得到、點得到。</li>
+      <li>起始階段自動：卡片置為活動、放 AP 卡（先攻 1/2/3、後攻 2/2/3 張）、抽 1 張（先攻第 1 回合不抽）。</li>
+      <li>點手牌或場上的卡會跳出選單：登場、突襲、使用事件、移動、攻擊、退場等，登場會自動扣 AP。</li>
+      <li>按錯可以「復原」；手機的返回鍵會先關選單，再關對戰桌。</li>
+    </ul>
+    </div>
+  </section>
+
   <section id="panelSettings" class="panel panel-settings">
     <div class="block">
       <h3>價格資料</h3>
@@ -261,9 +286,9 @@
       <summary>測試起手<span class="admin-only">、練習對戰</span></summary>
       <ul>
         <li>「測試起手」：洗牌後看起手 7 張，可以換手牌一次、繼續抽牌。</li>
-        <li class="admin-only">「練習對戰」（測試中，只有管理端看得到）：一個人的對戰桌。選先攻／後攻 → 換手牌 → 放 7 張生命，接著照回合流程（起始・移動・主要・攻擊・結束）進行。</li>
+        <li class="admin-only">「對戰」分頁（測試中，只有管理端看得到）：選玩家 A、B 的卡組，你一個人輪流操作兩邊。決定先攻 → 雙方換手牌 → 各放 7 張生命，接著照回合流程（起始・移動・主要・攻擊・結束）進行；左邊是玩家 A、右邊是玩家 B 的資訊，中間是目前回合玩家的場地。</li>
         <li class="admin-only">起始階段會自動把卡置為活動、放 AP 卡（先攻 1/2/3、後攻 2/2/3 張）、抽 1 張（先攻第 1 回合不抽）。</li>
-        <li class="admin-only">點手牌或場上的卡就會跳出選單：登場、突襲、使用事件、移動、休息／活動、退場等。登場時會自動扣 AP。</li>
+        <li class="admin-only">手牌可以直接拖到場上登場、拖到角色上突襲、拖到場外使用事件；點卡片也會跳出選單。登場時會自動扣 AP。</li>
         <li class="admin-only">卡片效果、對手的防禦和 BP 比較請自己判斷。按「受到 1 傷害」會翻開生命區的卡做觸發確認。</li>
         <li class="admin-only">按錯了可以按「復原」退回上一步。</li>
       </ul>
@@ -312,7 +337,7 @@
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js?v=20261109a"></script>
-<script src="play.js?v=20261109a"></script>
+<script src="app.js?v=20261109d"></script>
+<script src="play.js?v=20261109d"></script>
 </body>
 </html>
