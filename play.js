@@ -171,14 +171,86 @@
     log(`${who(P)}支付 1AP 額外抽卡`);
     render();
   }
+  /* ---------- 受到傷害：彈出生命區 7 格，由攻擊方選要翻哪幾張 ---------- */
+  // 規則：由對手指定與傷害數字相同張數的生命區卡片，承受傷害的玩家翻開做觸發確認
+  let LP = null; // { P, n, picked: [index…], done }
   function takeDamage(P, n = 1) {
     if (!P.life.length) return toast("生命區已經沒有卡了");
-    snap();
-    for (let i = 0; i < n && P.life.length; i++) P.reveal.push(P.life.shift());
-    log(`${who(P)}受到 ${n} 傷害，翻開生命區的卡做觸發確認`);
-    if (!P.life.length) S.over = `${who(P)}的生命區剩 0 張 —— ${who(S.players[1 - P.idx])}獲勝（觸發確認處理完才算數）`;
-    render();
+    LP = { P, n, picked: [], done: false };
+    renderLife();
   }
+  function renderLife() {
+    const w = $("#pyLifeWrap");
+    if (!LP) { w.hidden = true; return; }
+    const { P, n } = LP;
+    const need = Math.min(n, P.life.length);
+    const atk = S.players[1 - P.idx];
+    const box = $("#pyLife");
+    box.textContent = "";
+    box.append(el("h3", { text: LP.done ? `${who(P)}翻開的生命卡` : `${who(atk)}攻擊：選 ${need} 張${who(P)}的生命卡` }));
+    if (!LP.done) {
+      const chips = el("div", { class: "py-row py-dmg" }, el("span", { class: "py-lbl", text: "傷害" }));
+      [1, 2, 3].forEach((k) => chips.append(el("button", {
+        type: "button", class: `py-chip ${k === n ? "on" : ""}`,
+        onclick: () => { LP.n = k; LP.picked = LP.picked.slice(0, Math.min(k, P.life.length)); renderLife(); },
+      }, String(k))));
+      box.append(chips, el("p", { class: "py-sub", text: "點背面朝上的卡選擇要翻開哪幾張（左邊是生命區最上面）。空格是已經失去的生命。" }));
+    }
+    const grid = el("ul", { class: "py-lifegrid" });
+    for (let i = 0; i < 7; i++) {
+      if (LP.done) {
+        const uid = LP.revealed[i];
+        if (uid) grid.append(cardEl(uid, { cls: "flip", onclick: () => { const u = UA.officialList(card(uid))[0]; if (u) UA.openZoom(u, nameOf(uid)); } }));
+        else grid.append(el("li", { class: `py-lifeslot ${i < LP.left ? "back" : "gone"}` }));
+        continue;
+      }
+      if (i >= P.life.length) { grid.append(el("li", { class: "py-lifeslot gone", title: "已經失去" })); continue; }
+      const order = LP.picked.indexOf(i);
+      grid.append(el("li", { class: `py-lifeslot back ${order >= 0 ? "picked" : ""}` },
+        el("button", {
+          type: "button", "aria-label": `生命區第 ${i + 1} 張`,
+          onclick: () => {
+            const k = LP.picked.indexOf(i);
+            if (k >= 0) LP.picked.splice(k, 1);
+            else if (LP.picked.length < need) LP.picked.push(i);
+            else { LP.picked.shift(); LP.picked.push(i); }
+            renderLife();
+          },
+        }, order >= 0 ? String(order + 1) : "")));
+    }
+    box.append(grid);
+    const btns = el("div", { class: "py-row py-life-btns" });
+    if (!LP.done) {
+      btns.append(
+        el("button", { type: "button", class: "btn", onclick: closeLife }, "取消"),
+        el("button", { type: "button", class: "btn", onclick: () => { LP.picked = Array.from({ length: need }, (_, k) => k); renderLife(); } }, "從最上面選"),
+        el("button", { type: "button", class: "btn primary", disabled: LP.picked.length !== need, onclick: flipLife }, `翻開（${LP.picked.length}/${need}）`));
+    } else {
+      box.append(el("p", { class: "py-sub", text: "有觸發效果的話可以發動；這些卡已經放到中間的觸發確認區，處理完再放到場外。" }));
+      btns.append(el("button", { type: "button", class: "btn primary", onclick: closeLife }, "好"));
+    }
+    box.append(btns);
+    w.hidden = false;
+  }
+  function flipLife() {
+    const { P } = LP;
+    snap();
+    const before = P.life.length; // 翻開前的生命張數
+    const uids = LP.picked.map((i) => P.life[i]);
+    const revealed = Array(7).fill(null);
+    LP.picked.forEach((i, k) => { revealed[i] = uids[k]; });
+    P.life = P.life.filter((u) => !uids.includes(u));
+    P.reveal.push(...uids);
+    log(`${who(S.players[1 - P.idx])}選了${who(P)}生命區第 ${LP.picked.map((i) => i + 1).join("、")} 張翻開（${uids.map(nameOf).join("、")}）`);
+    if (!P.life.length) S.over = `${who(P)}的生命區剩 0 張 —— ${who(S.players[1 - P.idx])}獲勝（觸發確認處理完才算數）`;
+    // 翻開畫面：翻開的顯示卡面，沒翻的顯示背面，原本就空的顯示空格
+    LP.done = true;
+    LP.revealed = revealed;
+    LP.left = before;
+    render();
+    renderLife();
+  }
+  function closeLife() { LP = null; renderLife(); }
   function drawOne(P) {
     if (!P.deck.length) return toast("卡組沒有卡了");
     snap();
@@ -677,6 +749,8 @@
         el("div", { id: "pyTop", class: "py-top" }),
         el("p", { id: "pyHint", class: "py-hint" }),
         el("div", { id: "pyBoard", class: "py-board" }),
+        el("div", { id: "pyLifeWrap", class: "py-life-wrap", hidden: true, onclick: (e) => { if (e.target.id === "pyLifeWrap" && !(LP && LP.done === false && LP.picked.length)) closeLife(); } },
+          el("div", { id: "pyLife", class: "py-life-box", role: "dialog", "aria-label": "翻開生命卡" })),
         el("div", { id: "pySheetWrap", class: "py-sheet-wrap", hidden: true, onclick: (e) => { if (e.target.id === "pySheetWrap") closeSheet(); } },
           el("div", { id: "pySheet", class: "py-sheet" })));
       document.body.append(v);
@@ -689,14 +763,16 @@
     if (!open) return;
     open = false;
     closeSheet();
+    LP = null;
+    const lw = $("#pyLifeWrap"); if (lw) lw.hidden = true;
     $("#playView").hidden = true;
     document.body.classList.remove("modal-open");
     if (!fromHistory && history.state && history.state.uaPlay) { try { history.back(); } catch (e) {} }
   }
-  function back() { // 返回鍵：先關選單，再關對戰桌
-    if (!$("#pySheetWrap").hidden) { closeSheet(); try { history.pushState({ uaPlay: 1 }, ""); } catch (e) {} return; }
+  function back() { // 返回鍵：先關選單、翻生命視窗，再關對戰桌
+    if (!$("#pySheetWrap").hidden || LP) { closeSheet(); closeLife(); try { history.pushState({ uaPlay: 1 }, ""); } catch (e) {} return; }
     close(true);
   }
-  function esc() { if (!$("#pySheetWrap").hidden) closeSheet(); else close(); }
+  function esc() { if (!$("#pySheetWrap").hidden) closeSheet(); else if (LP) closeLife(); else close(); }
   window.UAPlay = { start, isOpen: () => open, back, close, esc };
 })();

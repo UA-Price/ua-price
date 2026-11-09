@@ -834,3 +834,28 @@ body.admin .viewer-only { display: none !important; }
   .py-main .py-line { grid-template-columns: repeat(4, minmax(0, 120px)); justify-content: center; gap: 10px; }
   .py-main .py-hand .py-card { flex-basis: 92px; }
 }
+
+/* 對戰桌：翻生命彈窗 */
+.py-life-wrap { position: fixed; inset: 0; z-index: 61; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(2, 3, 14, .72); }
+.py-life-wrap[hidden] { display: none; }
+.py-life-box {
+  width: min(720px, 100%); max-height: 92vh; overflow-y: auto; box-sizing: border-box; padding: 16px;
+  border-radius: 16px; border: 1px solid var(--frame); background: var(--surface-solid);
+  box-shadow: 0 0 40px rgba(91, 108, 242, .4); display: flex; flex-direction: column; gap: 10px; animation: cm-in .18s ease-out;
+}
+.py-life-box h3 { margin: 0; font-size: 17px; }
+.py-dmg { gap: 6px; }
+.py-chip { min-width: 38px; padding: 5px 10px; border-radius: 99px; cursor: pointer; font-weight: 800; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2); }
+.py-chip.on { border-color: var(--accent-2); background: var(--accent-grad); color: #fff; }
+.py-lifegrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.py-lifeslot { position: relative; aspect-ratio: 600 / 837; border-radius: 8px; }
+.py-lifeslot.gone { border: 1px dashed var(--line-strong); opacity: .5; }
+.py-lifeslot.back { background: repeating-linear-gradient(135deg, #c81e28 0 8px, #e5262c 8px 16px); box-shadow: 0 0 0 1px #ff9c8a, 0 3px 10px rgba(0, 0, 0, .5); }
+.py-lifeslot button { position: absolute; inset: 0; width: 100%; border: 0; border-radius: 8px; cursor: pointer; background: transparent; color: #fff; font-size: 26px; font-weight: 900; text-shadow: 0 2px 6px rgba(0, 0, 0, .7); }
+.py-lifeslot.back:hover { transform: translateY(-3px); }
+.py-lifeslot.picked { box-shadow: 0 0 0 3px #ffd43b, 0 0 18px rgba(255, 212, 59, .55); transform: translateY(-6px); }
+.py-lifeslot.picked button { background: rgba(0, 0, 0, .25); }
+.py-lifegrid .py-card.flip .py-in { animation: pyFlip .45s ease-out both; }
+@keyframes pyFlip { from { transform: rotateY(90deg); } to { transform: none; } }
+.py-life-btns { justify-content: flex-end; }
+@media (max-width: 480px) { .py-lifegrid { gap: 4px; } .py-lifeslot button { font-size: 18px; } }
