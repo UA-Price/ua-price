@@ -15,11 +15,11 @@
 
   const PHASES = ["起始", "移動", "主要", "攻擊", "結束"];
   const PHASE_HINT = [
-    "已自動：休息的卡置為活動、放置 AP 卡、抽 1 張。想再抽可以付 1AP 額外抽卡（每回合 1 次）。",
-    "把能源線的角色拖到前線（不能從前線移回能源線，除非有ステップ）。也可以點卡片用選單操作。",
+    "已自動：休息的卡置為活動、放置 AP 卡、抽 1 張。這個階段只能付 1AP 額外抽卡（每回合 1 次）。",
+    "這個階段只能移動角色：把能源線的角色拖到前線（有ステップ才能從前線移回能源線）。",
     "把手牌拖到前線或能源線登場；拖到場上的角色上＝突襲；拖到場外＝使用事件。也可以點卡片用選單操作。",
     "點前線活動的角色 →「攻擊」。接著會自動問對手要不要防禦；沒防禦就直接跳出生命區讓你選要翻哪幾張。",
-    "結束階段會把場上休息的角色、場域置為活動（AP 卡不會）。手牌超過 8 張要放到移除區。",
+    "已自動把場上休息的角色、場域置為活動（AP 卡不會）。這個階段只能把超過 8 張的手牌放到移除區。",
   ];
   const AP_TABLE = { first: [1, 2, 3], second: [2, 2, 3] };
   const SLOTS = 4;
@@ -140,10 +140,27 @@
     log(msg);
     render();
   }
+  // 上一階段：如果進入這個階段後還沒做任何事，就整個還原（例如結束階段自動置為活動的卡）；否則只把階段往回調
+  let phaseMark = -1;
+  function prevPhase() {
+    if (S.stage !== "play" || S.phase === 0) return;
+    if (phaseMark === undoStack.length && undoStack.length) {
+      S = undoStack.pop();
+      phaseMark = -1;
+      render();
+      return toast(`回到${PHASES[S.phase]}階段`);
+    }
+    snap();
+    S.phase -= 1;
+    log(`${who(CUR())}回到${PHASES[S.phase]}階段`);
+    render();
+    toast(`回到${PHASES[S.phase]}階段（這個階段做過的動作沒有還原，需要的話請按「復原」）`, 3500);
+  }
   function nextPhase() {
     if (S.stage !== "play") return;
     const P = CUR();
     snap();
+    if (S.phase < 4) phaseMark = undoStack.length;
     if (S.phase < 4) {
       S.phase += 1;
       if (S.phase === 4) {
@@ -190,7 +207,7 @@
     box.append(el("h3", { text: LP.done ? `${who(P)}翻開的生命卡` : `${who(atk)}${LP.atk ? `的「${nameOf(LP.atk)}」` : ""}攻擊成功：選 ${need} 張${who(P)}的生命卡翻開` }));
     if (!LP.done) {
       const chips = el("div", { class: "py-row py-dmg" }, el("span", { class: "py-lbl", text: "傷害" }));
-      [1, 2, 3].forEach((k) => chips.append(el("button", {
+      [1, 2, 3, 4, 5, 6, 7].forEach((k) => chips.append(el("button", {
         type: "button", class: `py-chip ${k === n ? "on" : ""}`,
         onclick: () => { LP.n = k; LP.picked = LP.picked.slice(0, Math.min(k, P.life.length)); renderLife(); },
       }, String(k))));
@@ -467,53 +484,76 @@
   }
 
   /* ---------- 點卡片的選單 ---------- */
+  // 各階段可以做的事（照規則書）：
+  //   起始：只能額外抽卡　移動：只能把角色在前線／能源線之間移動　主要：使用卡片、起動效果等全部
+  //   攻擊：攻擊、防禦、處理觸發效果（不能使用手牌）　結束：只能把多的手牌放到移除區
+  const PHASE_BLOCK = ["起始階段只能額外抽卡", "移動階段只能移動角色（能源線 ↔ 前線）", "", "攻擊階段不能使用手牌", "結束階段只能把多的手牌放到移除區"];
   function cardMenu(uid, zone) {
     const c = card(uid);
     const P = PL(uid);
     const mine = P.idx === S.cur;
+    const ph = S.phase;
     const info = [who(P), c.num, c.color || "", Number.isInteger(c.energy) ? `能源 ${c.energy}` : "", Number.isInteger(c.ap) ? `AP ${c.ap}` : "", Number.isInteger(c.bp) ? `BP ${c.bp}` : ""].filter(Boolean).join("・");
     const zoom = { label: "放大看卡", run: () => { const u = UA.officialList(c)[0]; if (u) UA.openZoom(u, c.name); } };
     const items = [];
+    let note = "";
+    const toPiles = (list) => list.forEach(([label, pile, where]) => items.push({ label, run: () => move(uid, pile, where) }));
     if (zone === "hand") {
-      items.push(
-        { label: "角色登場到前線（休息）", run: () => withAP(uid, (cost) => placeOnLine(uid, "front", { payCost: cost })) },
-        { label: "登場到能源線（休息）", run: () => withAP(uid, (cost) => placeOnLine(uid, "energy", { payCost: cost })) },
-        { label: "突襲", run: () => raid(uid) },
-        { label: "使用事件卡（用完放到場外）", run: () => useEvent(uid) },
-        { label: "放到場外", run: () => move(uid, "outside") },
-        { label: "放到移除區", run: () => move(uid, "remove") },
-        { label: "放回牌庫頂", run: () => move(uid, "deck", "top") },
-        { label: "放回牌庫底", run: () => move(uid, "deck", "bottom") },
-      );
+      if (ph === 2) {
+        items.push(
+          { label: "角色登場到前線（休息）", run: () => withAP(uid, (cost) => placeOnLine(uid, "front", { payCost: cost })) },
+          { label: "登場到能源線（休息）", run: () => withAP(uid, (cost) => placeOnLine(uid, "energy", { payCost: cost })) },
+          { label: "突襲", run: () => raid(uid) },
+          { label: "使用事件卡（用完放到場外）", run: () => useEvent(uid) },
+        );
+        toPiles([["放到場外", "outside"], ["放到移除區", "remove"], ["放回牌庫頂", "deck", "top"], ["放回牌庫底", "deck", "bottom"]]);
+      } else if (ph === 4) toPiles([["放到移除區（手牌超過 8 張時）", "remove"]]);
+      else note = PHASE_BLOCK[ph];
     } else if (zone === "front" || zone === "energy") {
       const f = slotOf(uid);
       const s = f && f.s;
-      if (mine && zone === "front" && S.phase === 3 && s && !s.rest) items.push({ label: "攻擊", run: () => startAttack(uid) });
-      if (!mine && zone === "front" && s && !s.rest) items.push({ label: "防禦（轉為休息）", run: () => setRest(uid, true, `${who(P)}：${c.name} 防禦`) });
-      items.push({ label: s && s.rest ? "置為活動（直向）" : "轉為休息（橫向）", run: () => setRest(uid) });
-      if (zone === "energy") items.push({ label: "移到前線", run: () => moveLine(uid, "front") });
-      else items.push({ label: "移到能源線（ステップ）", run: () => moveLine(uid, "energy") });
-      items.push(
-        { label: "退場（放到場外）", run: () => move(uid, "outside") },
-        { label: "放到移除區", run: () => move(uid, "remove") },
-        { label: "回到手牌", run: () => move(uid, "hand") },
-        { label: "放回牌庫頂", run: () => move(uid, "deck", "top") },
-        { label: "放回牌庫底", run: () => move(uid, "deck", "bottom") },
-      );
+      const lineMoves = () => {
+        if (zone === "energy") items.push({ label: "移到前線", run: () => moveLine(uid, "front") });
+        else items.push({ label: "移到能源線（ステップ）", run: () => moveLine(uid, "energy") });
+      };
+      const effects = () => {
+        items.push({ label: s && s.rest ? "置為活動（直向）" : "轉為休息（橫向）", run: () => setRest(uid) });
+        toPiles([["退場（放到場外）", "outside"], ["放到移除區", "remove"], ["回到手牌", "hand"], ["放回牌庫頂", "deck", "top"], ["放回牌庫底", "deck", "bottom"]]);
+      };
+      if (ph === 1) { if (mine) lineMoves(); else note = PHASE_BLOCK[1]; }
+      else if (ph === 2) { effects(); if (mine) lineMoves(); }
+      else if (ph === 3) {
+        if (mine && zone === "front" && s && !s.rest) items.push({ label: "攻擊", run: () => startAttack(uid) });
+        effects(); // 觸發效果可能讓角色退場、回手等
+      } else note = PHASE_BLOCK[ph];
       if (s && s.under && s.under.length) items.push({ label: `查看突襲底下的卡（${s.under.length} 張）`, run: () => pileView(null, s.under, `「${c.name}」底下的卡`) });
     } else {
-      items.push(
-        { label: "加入手牌", run: () => move(uid, "hand") },
-        { label: "登場到前線（休息）", run: () => placeOnLine(uid, "front") },
-        { label: "登場到能源線（休息）", run: () => placeOnLine(uid, "energy") },
-      );
-      if (zone !== "outside") items.push({ label: "放到場外", run: () => move(uid, "outside") });
-      if (zone !== "remove") items.push({ label: "放到移除區", run: () => move(uid, "remove") });
-      if (zone !== "deck") items.push({ label: "放到牌庫頂", run: () => move(uid, "deck", "top") }, { label: "放到牌庫底", run: () => move(uid, "deck", "bottom") });
-      if (zone !== "life") items.push({ label: "放到生命區（最上面）", run: () => { snap(); detach(uid); P.life.unshift(uid); log(`${who(P)}：${c.name} 放到生命區`); render(); } });
+      // 牌庫／場外／移除區／生命區／觸發確認區：主要階段（效果）和攻擊階段（觸發效果）才能動
+      if (ph === 2 || ph === 3) {
+        items.push(
+          { label: "加入手牌", run: () => move(uid, "hand") },
+          { label: "登場到前線（休息）", run: () => placeOnLine(uid, "front") },
+          { label: "登場到能源線（休息）", run: () => placeOnLine(uid, "energy") },
+        );
+        if (zone !== "outside") items.push({ label: "放到場外", run: () => move(uid, "outside") });
+        if (zone !== "remove") items.push({ label: "放到移除區", run: () => move(uid, "remove") });
+        if (zone !== "deck") items.push({ label: "放到牌庫頂", run: () => move(uid, "deck", "top") }, { label: "放到牌庫底", run: () => move(uid, "deck", "bottom") });
+        if (zone !== "life") items.push({ label: "放到生命區（最上面）", run: () => { snap(); detach(uid); P.life.unshift(uid); log(`${who(P)}：${c.name} 放到生命區`); render(); } });
+      } else note = ph === 0 ? PHASE_BLOCK[0] : ph === 1 ? PHASE_BLOCK[1] : PHASE_BLOCK[4];
     }
     items.push(zoom);
-    sheet(c.name, info, items, c);
+    sheet(c.name, note ? `${info}\n※ ${note}` : info, items, c);
+  }
+  // 拖曳在這個階段可不可以
+  function dropAllowed(uid, from, to) {
+    const ph = S.phase, mine = ownerIdx(uid) === S.cur;
+    const isLine = (z) => z === "front" || z === "energy";
+    if (from === "hand") return ph === 2 || (ph === 4 && to === "remove");
+    if (isLine(from)) {
+      if (isLine(to)) return mine && (ph === 1 || ph === 2);
+      return ph === 2 || ph === 3;
+    }
+    return ph === 2 || ph === 3; // 觸發確認區等
   }
   function useEvent(uid) {
     withAP(uid, (cost) => { snap(); toPile(uid, "outside"); if (cost) payAP(PL(uid), cost); log(`${who(PL(uid))}使用事件「${nameOf(uid)}」${cost ? `（支付 ${cost}AP）` : ""}`); render(); });
@@ -660,6 +700,10 @@
   }
   function dropTo(uid, from, to, slot) {
     const P = PL(uid);
+    if (!dropAllowed(uid, from, to)) {
+      const ph = S.phase;
+      return toast(from === "hand" && ph !== 2 && ph !== 4 ? PHASE_BLOCK[ph] || "這個階段不能這樣做" : ph === 4 ? PHASE_BLOCK[4] : ph === 0 ? PHASE_BLOCK[0] : ph === 1 ? PHASE_BLOCK[1] : "這個階段不能這樣做");
+    }
     const isLine = (z) => z === "front" || z === "energy";
     if (isLine(to)) {
       const target = slot >= 0 ? P[to][slot] : null;
@@ -818,6 +862,7 @@
       top.append(
         el("div", { class: "py-turn" }, el("b", { text: `${who(P)}・第 ${P.turn} 回合` }), el("span", { class: "py-sub", text: P.idx === S.first ? "先攻" : "後攻" })),
         ph,
+        el("button", { type: "button", class: "btn small", onclick: prevPhase, disabled: S.phase === 0, title: "回到上一個階段" }, S.phase > 0 ? `上一階段：${PHASES[S.phase - 1]}` : "上一階段"),
         el("button", { type: "button", class: "btn primary small", onclick: nextPhase }, S.phase < 4 ? `下一階段：${PHASES[S.phase + 1]}` : `結束回合（換玩家 ${PN[1 - S.cur]}）`));
     }
     top.append(
