@@ -645,3 +645,109 @@ body.admin .viewer-only { display: none !important; }
 .iv-scroll img { display: block; max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 0 0 1px var(--frame), 0 0 30px rgba(91, 108, 242, .45); -webkit-touch-callout: default; }
 .iv-btns { display: flex; gap: 10px; }
 .iv-hint { margin: 0; text-align: center; }
+
+/* ======================= 練習對戰桌 ======================= */
+.toast { z-index: 95; }
+.play-view {
+  position: fixed; inset: 0; z-index: 58; display: flex; flex-direction: column; overflow: hidden;
+  background: radial-gradient(120% 80% at 50% 0%, #17207a 0%, var(--night-0) 60%) fixed;
+  padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+}
+.play-view[hidden] { display: none; }
+.py-top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid var(--line); background: rgba(5, 8, 34, .85);
+}
+.py-top > b { font-size: 16px; }
+.py-turn { display: flex; flex-direction: column; line-height: 1.2; margin-right: 2px; }
+.py-sub { font-size: 12px; color: var(--ink-3); }
+.py-top > b + .py-sub { margin-right: auto; }
+.py-phases { display: flex; gap: 3px; margin-right: auto; }
+.py-phases span { padding: 3px 7px; border-radius: 99px; font-size: 12px; color: var(--ink-3); border: 1px solid var(--line); }
+.py-phases span.done { color: var(--ink-2); }
+.py-phases span.on { color: #fff; border-color: var(--neon-t); background: rgba(39, 200, 218, .18); font-weight: 700; }
+.py-hint { margin: 0; padding: 6px 12px; font-size: 12px; color: var(--ink-2); background: rgba(20, 32, 96, .55); border-bottom: 1px solid var(--line); }
+.py-hint[hidden] { display: none; }
+.py-board { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 10px 24px; display: flex; flex-direction: column; gap: 10px; max-width: 760px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.py-lbl { font-size: 12px; font-weight: 700; color: var(--ink-3); letter-spacing: .05em; }
+.py-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.py-row.sp { justify-content: space-between; }
+.py-setup { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: var(--radius); border: 1px solid var(--frame); background: var(--surface); }
+.py-setup h3 { margin: 0; }
+.py-setup p { margin: 0; color: var(--ink-2); font-size: 14px; }
+.py-over { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--bad); background: var(--bad-soft); font-weight: 700; }
+
+/* AP */
+.py-ap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.py-apcard {
+  width: 34px; height: 46px; border-radius: 6px; border: 1px solid #ff9c8a; cursor: pointer;
+  background: linear-gradient(160deg, #ff7a3d, #c81e28); color: #fff; font-weight: 900; font-size: 11px; transition: transform .15s;
+}
+.py-apcard.rest { transform: rotate(90deg) scale(.85); filter: grayscale(.6) brightness(.7); }
+.py-apcard.off { opacity: .25; cursor: not-allowed; }
+.py-apinfo { font-size: 13px; color: var(--ink-2); margin-right: auto; }
+
+/* 場上 */
+.py-zone { display: flex; flex-direction: column; gap: 4px; }
+.py-line { list-style: none; margin: 0; padding: 6px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; border-radius: 10px; }
+.py-line.front { background: rgba(240, 75, 38, .10); border: 1px solid rgba(240, 75, 38, .35); }
+.py-line.energy { background: rgba(39, 200, 218, .08); border: 1px solid rgba(39, 200, 218, .3); }
+.py-slot { aspect-ratio: 600 / 837; border-radius: 8px; border: 1px dashed var(--line-strong); }
+.py-card { position: relative; list-style: none; cursor: pointer; aspect-ratio: 600 / 837; }
+.py-card .py-in { position: absolute; inset: 0; transition: transform .18s ease; }
+.py-card.rest .py-in { transform: rotate(90deg) scale(.72); }
+.py-card img, .py-noimg, .py-back { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 7px; box-shadow: 0 0 0 1px var(--frame), 0 3px 10px rgba(0, 0, 0, .5); background: var(--night-1); }
+.py-noimg { display: grid; place-items: center; padding: 4px; box-sizing: border-box; font-size: 11px; text-align: center; color: var(--ink-2); }
+.py-back { background: repeating-linear-gradient(135deg, #c81e28 0 8px, #e5262c 8px 16px); box-shadow: 0 0 0 1px #ff9c8a; }
+.py-card:focus-visible { outline: 2px solid var(--neon-t); outline-offset: 2px; border-radius: 8px; }
+.py-badge { position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: 800; color: #fff; background: var(--accent-grad); white-space: nowrap; }
+
+/* 各區 */
+.py-piles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.py-pilebox { display: flex; flex-direction: column; gap: 4px; }
+.py-pilebtn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; padding: 8px 4px; cursor: pointer;
+  border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); font-size: 12px;
+}
+.py-pilebtn .py-pn { font-size: 22px; font-weight: 900; color: #fff; line-height: 1.1; }
+.py-life .py-pilebtn { border-color: rgba(240, 75, 38, .6); background: rgba(80, 16, 20, .55); }
+.py-pilebox .btn.small { padding: 5px 4px; font-size: 12px; }
+
+/* 手牌、觸發確認 */
+.py-hand { list-style: none; margin: 0; padding: 4px 2px 8px; display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.py-hand .py-card { flex: 0 0 76px; }
+.py-hand.big { flex-wrap: wrap; overflow: visible; }
+.py-hand.big .py-card { flex: 0 0 calc((100% - 18px) / 4); }
+.py-reveal { padding: 10px; border-radius: var(--radius); border: 1px solid var(--warn); background: var(--warn-soft); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.py-empty { list-style: none; color: var(--ink-3); font-size: 13px; padding: 10px; }
+.py-log { font-size: 12px; color: var(--ink-3); }
+.py-log summary { cursor: pointer; }
+.py-log ol { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; }
+
+/* 下方選單 */
+.py-sheet-wrap { position: fixed; inset: 0; z-index: 62; display: flex; align-items: flex-end; justify-content: center; background: rgba(2, 3, 14, .6); }
+.py-sheet-wrap[hidden] { display: none; }
+.py-sheet {
+  width: min(560px, 100%); max-height: 82vh; overflow-y: auto; box-sizing: border-box;
+  padding: 14px 14px max(14px, env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0;
+  background: var(--surface-solid); border: 1px solid var(--frame); border-bottom: 0; animation: pySheetIn .16s ease-out;
+}
+@keyframes pySheetIn { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+.py-sh-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+.py-sh-head img { width: 64px; border-radius: 6px; box-shadow: 0 0 0 1px var(--frame); }
+.py-sh-head b { font-size: 16px; }
+.py-sh-head p { margin: 4px 0 0; font-size: 12px; color: var(--ink-3); }
+.py-sh-list { display: flex; flex-direction: column; gap: 6px; }
+.py-sh-list.row { flex-direction: row; justify-content: flex-end; margin-top: 10px; }
+.py-sh-btn {
+  text-align: left; padding: 11px 14px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 600;
+  border: 1px solid var(--line-strong); background: rgba(20, 32, 96, .6); color: var(--ink);
+}
+.py-sh-btn:hover { border-color: var(--neon-t); }
+.py-sh-btn.cancel { text-align: center; color: var(--ink-3); background: transparent; }
+.py-pile { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 420px) {
+  .py-phases span { padding: 2px 5px; font-size: 11px; }
+  .py-pile { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 980px) { .py-hand .py-card { flex-basis: 96px; } }

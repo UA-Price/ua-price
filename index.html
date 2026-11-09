@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-180.png?v=1">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="查價之境">
-<link rel="stylesheet" href="style.css?v=20261106a">
+<link rel="stylesheet" href="style.css?v=20261109a">
 </head>
 <body class="view-search">
 
@@ -96,6 +96,7 @@
 
     <div class="deck-tools">
       <button id="btnHand" class="btn small primary">測試起手</button>
+      <button id="btnPlay" class="btn small primary admin-only" title="測試中：只有管理端看得到">練習對戰（測試中）</button>
       <button id="btnCheapest" class="btn small">全部換成最便宜版本</button>
       <button id="btnClear" class="btn small ghost">清空</button>
     </div>
@@ -216,7 +217,7 @@
       <button id="handMull" class="btn">換手牌（重抽 7 張）</button>
       <button id="handNew" class="btn primary">重新洗牌</button>
     </div>
-    <p class="hint">只用主卡組（不含 AP 卡）。點卡片可以放大。換手牌照規則一場只能換一次：手牌全部放回、重新洗牌、再抽 7 張。</p>
+    <p class="hint">只用主卡組（不含 AP 卡）。點卡片可以放大。換手牌照規則一場只能換一次：手牌先放旁邊、重新抽 7 張，再把放旁邊的放回卡組洗牌。</p>
   </div>
 </div>
 
@@ -256,6 +257,17 @@
       </ul>
     </details>
 
+    <details>
+      <summary>測試起手<span class="admin-only">、練習對戰</span></summary>
+      <ul>
+        <li>「測試起手」：洗牌後看起手 7 張，可以換手牌一次、繼續抽牌。</li>
+        <li class="admin-only">「練習對戰」（測試中，只有管理端看得到）：一個人的對戰桌。選先攻／後攻 → 換手牌 → 放 7 張生命，接著照回合流程（起始・移動・主要・攻擊・結束）進行。</li>
+        <li class="admin-only">起始階段會自動把卡置為活動、放 AP 卡（先攻 1/2/3、後攻 2/2/3 張）、抽 1 張（先攻第 1 回合不抽）。</li>
+        <li class="admin-only">點手牌或場上的卡就會跳出選單：登場、突襲、使用事件、移動、休息／活動、退場等。登場時會自動扣 AP。</li>
+        <li class="admin-only">卡片效果、對手的防禦和 BP 比較請自己判斷。按「受到 1 傷害」會翻開生命區的卡做觸發確認。</li>
+        <li class="admin-only">按錯了可以按「復原」退回上一步。</li>
+      </ul>
+    </details>
     <details>
       <summary>算總價（三種算法）</summary>
       <ul>
@@ -300,6 +312,7 @@
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js?v=20261106a"></script>
+<script src="app.js?v=20261109a"></script>
+<script src="play.js?v=20261109a"></script>
 </body>
 </html>

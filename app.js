@@ -619,8 +619,10 @@
   }
   function handMulligan() {
     if (hand.mulled) return;
-    hand.deck = shuffle(hand.deck.concat(hand.cards));
+    // 規則：手牌先放旁邊 → 再抽 7 張 → 放旁邊的放回卡組洗牌
+    const aside = hand.cards;
     hand.cards = hand.deck.splice(0, HAND_SIZE);
+    hand.deck = shuffle(hand.deck.concat(aside));
     hand.mulled = true;
     renderHand();
   }
@@ -1685,6 +1687,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     });
     $("#btnCheapest").addEventListener("click", swapToCheapest);
     $("#btnHand").addEventListener("click", openHand);
+    $("#btnPlay").addEventListener("click", () => { if (window.UAPlay && isAdmin()) UAPlay.start(); }); // 測試中：只給管理端
     $("#handClose").addEventListener("click", () => closeHand());
     $("#handModal").addEventListener("click", (e) => { if (e.target.id === "handModal") closeHand(); });
     $("#handNew").addEventListener("click", handNewGame);
@@ -1750,6 +1753,7 @@ p{margin:0;font-size:12px;color:#8593c7}
       else if (zoomOpen) closeZoom(); // 先關放大的卡圖，再按一次才關卡片視窗
       else if (modalKey) closeCard();
       else if (hand.open) closeHand();
+      else if (window.UAPlay && UAPlay.isOpen()) UAPlay.esc();
     });
     window.addEventListener("popstate", () => {
       if (zoomPopSkip) { zoomPopSkip = false; return; }
@@ -1757,6 +1761,7 @@ p{margin:0;font-size:12px;color:#8593c7}
       else if (zoomOpen) closeZoom(true);
       else if (modalKey) closeCard(true);
       else if (hand.open) closeHand(true);
+      else if (window.UAPlay && UAPlay.isOpen()) UAPlay.back();
     });
     // 使用說明
     let helpOpen = false;
@@ -1867,6 +1872,9 @@ p{margin:0;font-size:12px;color:#8593c7}
       ? "還沒有價格資料。請用電腦到「匯入・設定」分頁設定書籤，先從遊々亭匯入（卡片清單和卡圖也會一起匯入）。"
       : "價格資料還沒準備好，請稍後再來看看。";
   }
+
+  // 給練習對戰桌（play.js）用的共用工具
+  window.UA = { $, el, toast, deckEntries, isAP, imgCandidates, officialList, setImgChain, openZoom, deckName: () => deck().name };
 
   init();
 })();
