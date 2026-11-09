@@ -859,3 +859,15 @@ body.admin .viewer-only { display: none !important; }
 @keyframes pyFlip { from { transform: rotateY(90deg); } to { transform: none; } }
 .py-life-btns { justify-content: flex-end; }
 @media (max-width: 480px) { .py-lifegrid { gap: 4px; } .py-lifeslot button { font-size: 18px; } }
+
+/* 對戰桌：攻擊流程彈窗 */
+.py-vs { display: flex; flex-direction: column; gap: 4px; }
+.py-poprow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.py-poprow .py-card.py-popcard { width: 92px; flex: 0 0 auto; }
+.py-pick { list-style: none; display: flex; flex-direction: column; gap: 6px; align-items: stretch; width: 92px; }
+.py-pick .py-card.py-popcard { width: 100%; }
+.py-pick .btn.small { padding: 5px 4px; font-size: 12px; }
+.py-battle { display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap; }
+.py-battle .py-card.py-popcard { width: 120px; }
+.py-vs-mark { font-size: 26px; font-weight: 900; color: #ffd43b; text-shadow: 0 0 14px rgba(255, 212, 59, .6); }
+@media (max-width: 480px) { .py-battle .py-card.py-popcard { width: 100px; } .py-poprow .py-card.py-popcard, .py-pick { width: 78px; } }

@@ -18,7 +18,7 @@
     "已自動：休息的卡置為活動、放置 AP 卡、抽 1 張。想再抽可以付 1AP 額外抽卡（每回合 1 次）。",
     "把能源線的角色拖到前線（不能從前線移回能源線，除非有ステップ）。也可以點卡片用選單操作。",
     "把手牌拖到前線或能源線登場；拖到場上的角色上＝突襲；拖到場外＝使用事件。也可以點卡片用選單操作。",
-    "點前線活動的角色 →「攻擊」。對手要防禦就點對手前線的角色（在旁邊的資訊欄）轉為休息；打到玩家就按對手那邊的「受到 1 傷害」。",
+    "點前線活動的角色 →「攻擊」。接著會自動問對手要不要防禦；沒防禦就直接跳出生命區讓你選要翻哪幾張。",
     "結束階段會把場上休息的角色、場域置為活動（AP 卡不會）。手牌超過 8 張要放到移除區。",
   ];
   const AP_TABLE = { first: [1, 2, 3], second: [2, 2, 3] };
@@ -174,27 +174,27 @@
   /* ---------- 受到傷害：彈出生命區 7 格，由攻擊方選要翻哪幾張 ---------- */
   // 規則：由對手指定與傷害數字相同張數的生命區卡片，承受傷害的玩家翻開做觸發確認
   let LP = null; // { P, n, picked: [index…], done }
-  function takeDamage(P, n = 1) {
+  function takeDamage(P, n = 1, atkUid = null) {
     if (!P.life.length) return toast("生命區已經沒有卡了");
-    LP = { P, n, picked: [], done: false };
+    LP = { P, n, picked: [], done: false, atk: atkUid };
     renderLife();
   }
   function renderLife() {
     const w = $("#pyLifeWrap");
-    if (!LP) { w.hidden = true; return; }
+    if (!LP) { if (AT) return renderAttack(); w.hidden = true; return; }
     const { P, n } = LP;
     const need = Math.min(n, P.life.length);
     const atk = S.players[1 - P.idx];
     const box = $("#pyLife");
     box.textContent = "";
-    box.append(el("h3", { text: LP.done ? `${who(P)}翻開的生命卡` : `${who(atk)}攻擊：選 ${need} 張${who(P)}的生命卡` }));
+    box.append(el("h3", { text: LP.done ? `${who(P)}翻開的生命卡` : `${who(atk)}${LP.atk ? `的「${nameOf(LP.atk)}」` : ""}攻擊成功：選 ${need} 張${who(P)}的生命卡翻開` }));
     if (!LP.done) {
       const chips = el("div", { class: "py-row py-dmg" }, el("span", { class: "py-lbl", text: "傷害" }));
       [1, 2, 3].forEach((k) => chips.append(el("button", {
         type: "button", class: `py-chip ${k === n ? "on" : ""}`,
         onclick: () => { LP.n = k; LP.picked = LP.picked.slice(0, Math.min(k, P.life.length)); renderLife(); },
       }, String(k))));
-      box.append(chips, el("p", { class: "py-sub", text: "點背面朝上的卡選擇要翻開哪幾張（左邊是生命區最上面）。空格是已經失去的生命。" }));
+      box.append(chips, el("p", { class: "py-sub", text: "一般是 1 傷害，有ダメージ❷ 等效果就改成 2。點背面朝上的卡選擇要翻開哪幾張（左邊是生命區最上面），空格是已經失去的生命。" }));
     }
     const grid = el("ul", { class: "py-lifegrid" });
     for (let i = 0; i < 7; i++) {
@@ -250,7 +250,80 @@
     render();
     renderLife();
   }
-  function closeLife() { LP = null; renderLife(); }
+  function closeLife() { LP = null; AT = null; renderLife(); }
+
+  /* ---------- 攻擊流程：指定攻擊 → 對手決定防禦 → 對戰或造成傷害（自動接下去） ---------- */
+  // 規則書：攻擊角色轉為休息 → 對手可以用前線活動的角色防禦（轉為休息）→
+  //   攻擊對象是角色：比 BP，攻擊方 ≥ 防禦方 → 防禦角色退場；否則攻擊方戰敗（攻擊角色不會退場）
+  //   攻擊對象是玩家：造成 1 傷害（ダメージ❷ 等於 2），由攻擊方指定生命卡翻開做觸發確認
+  let AT = null; // { uid, step: "block" | "battle", target }
+  function startAttack(uid) {
+    const P = PL(uid);
+    const f = slotOf(uid);
+    if (!f || f.s.rest || f.line !== "front") return toast("只有前線活動的角色可以攻擊");
+    snap();
+    f.s.rest = true;
+    log(`${who(P)}：${nameOf(uid)} 攻擊`);
+    render();
+    AT = { uid, step: "block", target: null, snipe: false };
+    renderAttack();
+  }
+  function popCard(uid, extra = {}) {
+    return cardEl(uid, { cls: "py-popcard", onclick: () => { const u = UA.officialList(card(uid))[0]; if (u) UA.openZoom(u, nameOf(uid)); }, ...extra });
+  }
+  function renderAttack() {
+    const w = $("#pyLifeWrap");
+    const box = $("#pyLife");
+    const A = PL(AT.uid), Dp = S.players[1 - A.idx];
+    box.textContent = "";
+    if (AT.step === "block") {
+      const blockers = Dp.front.filter((s) => s && !s.rest);
+      const targets = Dp.front.filter(Boolean);
+      box.append(el("h3", { text: AT.snipe ? `狙い撃ち：選要攻擊${who(Dp)}的哪張角色` : `${who(A)}的「${nameOf(AT.uid)}」攻擊！${who(Dp)}要防禦嗎？` }));
+      const atkRow = el("ul", { class: "py-poprow" }, popCard(AT.uid));
+      box.append(el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: "攻擊角色" }), atkRow));
+      const list = AT.snipe ? targets : blockers;
+      const row = el("ul", { class: "py-poprow" });
+      list.forEach((s) => row.append(el("li", { class: "py-pick" },
+        popCard(s.uid, { rest: s.rest }),
+        el("button", { type: "button", class: "btn small primary", onclick: () => { AT.snipe ? chooseTarget(s.uid, false) : chooseTarget(s.uid, true); } }, AT.snipe ? "攻擊這張" : "用這張防禦"))));
+      if (!list.length) row.append(el("li", { class: "py-empty", text: AT.snipe ? "對手前線沒有角色" : "對手前線沒有活動的角色可以防禦" }));
+      box.append(el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: AT.snipe ? `${who(Dp)}前線的角色` : `${who(Dp)}可以防禦的角色（前線・活動）` }), row));
+      const btns = el("div", { class: "py-row py-life-btns" });
+      if (!AT.snipe) {
+        btns.append(
+          el("button", { type: "button", class: "btn", title: "攻擊角色有「狙い撃ち」時，可以改成攻擊對手前線的角色", onclick: () => { AT.snipe = true; renderAttack(); } }, "狙い撃ち（改攻擊角色）"),
+          el("button", { type: "button", class: "btn primary", onclick: () => { const atk = AT.uid; AT = null; log(`${who(Dp)}不防禦`); takeDamage(Dp, 1, atk); } }, "不防禦（受到傷害）"));
+      } else btns.append(el("button", { type: "button", class: "btn", onclick: () => { AT.snipe = false; renderAttack(); } }, "返回"));
+      box.append(btns);
+    } else {
+      const T = AT.target;
+      box.append(el("h3", { text: `對戰：${nameOf(AT.uid)} vs ${nameOf(T)}` }));
+      box.append(el("div", { class: "py-battle" },
+        el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: `${who(A)}（攻擊）` }), el("ul", { class: "py-poprow" }, popCard(AT.uid))),
+        el("b", { class: "py-vs-mark", text: "VS" }),
+        el("div", { class: "py-vs" }, el("span", { class: "py-lbl", text: `${who(Dp)}（${AT.blocked ? "防禦" : "被攻擊"}）` }), el("ul", { class: "py-poprow" }, popCard(T)))));
+      box.append(el("p", { class: "py-sub", text: "比較雙方的 BP（加上效果的增減）：攻擊方 BP 大於或等於對方 → 攻擊方勝，被攻擊的角色退場；攻擊方 BP 比較小 → 防禦方勝，攻擊角色不會退場。" }));
+      box.append(el("div", { class: "py-row py-life-btns" },
+        el("button", { type: "button", class: "btn", onclick: () => { log(`對戰結果：${who(Dp)}的「${nameOf(T)}」勝，${nameOf(AT.uid)} 不會退場`); AT = null; renderLife(); render(); } }, "防禦方勝"),
+        el("button", { type: "button", class: "btn primary", onclick: () => { snap(); toPile(T, "outside"); log(`對戰結果：${who(A)}的「${nameOf(AT.uid)}」勝，${who(Dp)}的「${nameOf(T)}」退場`); AT = null; renderLife(); render(); } }, "攻擊方勝（對方角色退場）")));
+    }
+    w.hidden = false;
+  }
+  function chooseTarget(tuid, blocked) {
+    const Dp = PL(tuid);
+    if (blocked) {
+      snap();
+      const f = slotOf(tuid);
+      if (f) f.s.rest = true;
+      log(`${who(Dp)}：${nameOf(tuid)} 防禦`);
+      render();
+    } else log(`狙い撃ち：攻擊${who(Dp)}的「${nameOf(tuid)}」`);
+    AT.step = "battle";
+    AT.target = tuid;
+    AT.blocked = blocked;
+    renderAttack();
+  }
   function drawOne(P) {
     if (!P.deck.length) return toast("卡組沒有卡了");
     snap();
@@ -395,7 +468,7 @@
     } else if (zone === "front" || zone === "energy") {
       const f = slotOf(uid);
       const s = f && f.s;
-      if (mine && zone === "front" && S.phase === 3 && s && !s.rest) items.push({ label: "攻擊（轉為休息）", run: () => setRest(uid, true, `${who(P)}：${c.name} 攻擊`) });
+      if (mine && zone === "front" && S.phase === 3 && s && !s.rest) items.push({ label: "攻擊", run: () => startAttack(uid) });
       if (!mine && zone === "front" && s && !s.rest) items.push({ label: "防禦（轉為休息）", run: () => setRest(uid, true, `${who(P)}：${c.name} 防禦`) });
       items.push({ label: s && s.rest ? "置為活動（直向）" : "轉為休息（橫向）", run: () => setRest(uid) });
       if (zone === "energy") items.push({ label: "移到前線", run: () => moveLine(uid, "front") });
@@ -664,10 +737,6 @@
       pileBtn(P, "牌庫", "deck", ""),
       pileBtn(P, "場外", "outside", ""),
       pileBtn(P, "移除區", "remove", "")));
-    box.append(el("div", { class: "py-side-btns" },
-      el("button", { type: "button", class: "btn small", onclick: () => takeDamage(P, 1) }, "受到 1 傷害"),
-      el("button", { type: "button", class: "btn small", onclick: () => takeDamage(P, 2) }, "受到 2 傷害"),
-      el("button", { type: "button", class: "btn small", onclick: () => drawOne(P) }, "抽 1 張")));
     box.append(el("div", { class: "py-sub", text: `手牌 ${P.hand.length} 張` }));
     // 不是回合中的玩家：顯示他的場地縮圖（點了可以防禦、退場）
     if (!active) {
@@ -749,7 +818,7 @@
         el("div", { id: "pyTop", class: "py-top" }),
         el("p", { id: "pyHint", class: "py-hint" }),
         el("div", { id: "pyBoard", class: "py-board" }),
-        el("div", { id: "pyLifeWrap", class: "py-life-wrap", hidden: true, onclick: (e) => { if (e.target.id === "pyLifeWrap" && !(LP && LP.done === false && LP.picked.length)) closeLife(); } },
+        el("div", { id: "pyLifeWrap", class: "py-life-wrap", hidden: true, onclick: (e) => { if (e.target.id === "pyLifeWrap" && !AT && !(LP && LP.done === false)) closeLife(); } },
           el("div", { id: "pyLife", class: "py-life-box", role: "dialog", "aria-label": "翻開生命卡" })),
         el("div", { id: "pySheetWrap", class: "py-sheet-wrap", hidden: true, onclick: (e) => { if (e.target.id === "pySheetWrap") closeSheet(); } },
           el("div", { id: "pySheet", class: "py-sheet" })));
@@ -764,15 +833,16 @@
     open = false;
     closeSheet();
     LP = null;
+    AT = null;
     const lw = $("#pyLifeWrap"); if (lw) lw.hidden = true;
     $("#playView").hidden = true;
     document.body.classList.remove("modal-open");
     if (!fromHistory && history.state && history.state.uaPlay) { try { history.back(); } catch (e) {} }
   }
   function back() { // 返回鍵：先關選單、翻生命視窗，再關對戰桌
-    if (!$("#pySheetWrap").hidden || LP) { closeSheet(); closeLife(); try { history.pushState({ uaPlay: 1 }, ""); } catch (e) {} return; }
+    if (!$("#pySheetWrap").hidden || LP || AT) { closeSheet(); closeLife(); try { history.pushState({ uaPlay: 1 }, ""); } catch (e) {} return; }
     close(true);
   }
-  function esc() { if (!$("#pySheetWrap").hidden) closeSheet(); else if (LP) closeLife(); else close(); }
+  function esc() { if (!$("#pySheetWrap").hidden) closeSheet(); else if (LP || AT) closeLife(); else close(); }
   window.UAPlay = { start, isOpen: () => open, back, close, esc };
 })();
