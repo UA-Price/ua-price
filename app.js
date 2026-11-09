@@ -19,8 +19,8 @@
   };
   const IMPORT_SHOPS = ["yuyu", "hs", "dora", "meru", "kpp"];
   const JPY_SHOPS = Object.keys(SHOPS).filter((s) => !SHOPS[s].twd); // 用日幣比價的店
-  const DATA_KEYS = [...IMPORT_SHOPS, "colors"]; // 匯入資料的種類：三家價格 + 官方卡表的卡片顏色
-  const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片資料）" : SHOPS[k].name);
+  const DATA_KEYS = [...IMPORT_SHOPS, "colors", "detail"]; // 匯入資料的種類：各家價格 + 官方卡表的卡片顏色 + 官方卡片效果
+  const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片資料）" : k === "detail" ? "官方卡片效果" : SHOPS[k].name);
   const ENERGY_CHIPS = [0, 1, 2, 3, 4, 5, 6, 7]; // 7 代表 7 以上
   const AP_CHIPS = [1, 2, 3];
   const COLOR_LIST = [
@@ -250,7 +250,7 @@
       if (replaceShop === shop) { if (b[shop]) out[shop] = b[shop]; continue; }
       const x = (a && a[shop]) || null, y = (b && b[shop]) || null;
       if (!x && !y) continue;
-      const ti = shop === "colors" ? 1 : 4; // 每筆資料記錄時間的位置
+      const ti = shop === "colors" ? 1 : shop === "detail" ? 6 : 4; // 每筆資料記錄時間的位置
       const items = { ...((x && x.items) || {}) };
       for (const [k, it] of Object.entries((y && y.items) || {})) {
         if (!items[k] || (it[ti] || 0) >= (items[k][ti] || 0)) items[k] = it;
@@ -267,6 +267,15 @@
   }
   const effImports = () => mergeImportSets(remoteImports, imports);
 
+  // 發生能源：「[黄黄]」「[青][黄]」→ { 黄: 2 } 這樣的數量
+  function parseGen(t) {
+    if (!t || t === "-") return null;
+    const g = {};
+    for (const ch of String(t)) if ("赤青黄緑紫".includes(ch)) g[ch] = (g[ch] || 0) + 1;
+    const m = String(t).match(/虹|全色/g);
+    if (m) g.虹 = m.length;
+    return Object.keys(g).length ? g : null;
+  }
   function offerFrom(item, shop) {
     // item: [價格, 庫存, 網址路徑, 卡名, 時間, (遊々亭) 稀有度, 系列代碼, 商品編號]
     let url = item[2] || "";
@@ -358,8 +367,20 @@
     VARIANTS = new Map();
     const colorItems = (eff.colors && eff.colors.items) || {};
     const bpMap = (eff.kpp && eff.kpp.bp) || {};
+    const dtItems = (eff.detail && eff.detail.items) || {};
     for (const c of CARDS) {
       c.bp = Number.isInteger(bpMap[c.base]) ? bpMap[c.base] : null; // BP（卡拍拍資料）
+      const dt = dtItems[c.num];
+      if (dt) { // 官方卡片效果
+        c.type = dt[0];
+        const b = parseInt(dt[1], 10);
+        if (Number.isInteger(b)) c.bp = b;
+        c.traits = dt[2] && dt[2] !== "-" ? dt[2] : "";
+        c.gen = parseGen(dt[3]);
+        c.genText = dt[3] && dt[3] !== "-" ? dt[3] : "";
+        c.effect = dt[4] && dt[4] !== "-" ? dt[4] : "";
+        c.trigger = dt[5] && dt[5] !== "-" ? dt[5] : "";
+      } else { c.type = ""; c.traits = ""; c.gen = null; c.genText = ""; c.effect = ""; c.trigger = ""; }
       const ci = colorItems[c.num];
       c.color = ci && COLOR_INFO[ci[0]] ? ci[0] : "";
       c.energy = ci && Number.isInteger(ci[2]) ? ci[2] : null; // 必要エナジー
@@ -702,7 +723,17 @@
       c.energy != null ? el("span", { class: "cm-cost", text: `必要エナジー ${c.energy}` }) : "",
       c.ap != null ? el("span", { class: "cm-cost", text: `消費 AP ${c.ap}` }) : "",
       c.bp != null ? el("span", { class: "cm-cost", text: `BP ${c.bp}` }) : "",
+      c.genText ? el("span", { class: "cm-cost", text: `發生能源 ${c.genText.replace(/[\[\]]/g, "")}` }) : "",
       c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, SETNAMES[c.set] ? el("span", { class: "cm-set", text: SETNAMES[c.set] }) : "");
+    // 官方卡片效果
+    let fx = $("#cmFx");
+    if (!fx) { fx = el("div", { id: "cmFx", class: "cm-fx" }); meta.after(fx); }
+    fx.textContent = "";
+    const fxText = (t) => String(t).split(/(\[[^\]]{1,20}\])/).map((part) => /^\[.*\]$/.test(part) ? el("span", { class: "fx-tag", text: part.slice(1, -1) }) : part);
+    if (c.type || c.traits) fx.append(el("div", { class: "fx-row fx-sub" }, [c.type, c.traits ? `特徵：${c.traits}` : ""].filter(Boolean).join("・")));
+    if (c.effect) fx.append(el("div", { class: "fx-row" }, el("b", { text: "效果" }), el("p", {}, ...fxText(c.effect))));
+    if (c.trigger) fx.append(el("div", { class: "fx-row" }, el("b", { text: "觸發" }), el("p", {}, ...fxText(c.trigger))));
+    fx.hidden = !fx.childNodes.length;
     // 三家價格（由上到下）
     const shops = $("#cmShops");
     shops.textContent = "";
@@ -1203,8 +1234,24 @@ p{margin:0;font-size:12px;color:#8593c7}
     saveImports("colors");
     return count;
   }
+  // 官方卡片效果：每張卡存 [種類, BP, 特徵, 發生能源, 效果, 觸發, 時間]
+  function mergeDetail(items) {
+    const now = Date.now();
+    const box = (imports.detail = imports.detail || { items: {} });
+    const str = (v, max) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, max);
+    let count = 0;
+    for (const it of items) {
+      if (!Array.isArray(it) || !NUM_RE.test(String(it[0]))) continue;
+      box.items[it[0]] = [str(it[1], 20), str(it[2], 12), str(it[3], 80), str(it[4], 20), str(it[5], 1500), str(it[6], 600), now];
+      count++;
+    }
+    box.t = now;
+    saveImports("detail");
+    return count;
+  }
   function mergeImport(shop, items, sets, titles, bp) {
     if (shop === "colors") return mergeColors(items, titles);
+    if (shop === "detail") return mergeDetail(items);
     const now = Date.now();
     const box = (imports[shop] = imports[shop] || { items: {} });
     if (shop === "kpp" && bp && typeof bp === "object") { // 卡拍拍附帶的 BP：卡號後半段 → BP
@@ -1277,7 +1324,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     // 擴充功能轉送來的資料（從這個網站分頁自己送進來，裡面標明是哪一家）
     if (e.source === window && e.data && e.data.__ua_ext_import) {
       const d = e.data.__ua_ext_import;
-      const shop = d && Object.values(SHOP_ORIGINS).includes(d.shop) ? d.shop : null;
+      const shop = d && (Object.values(SHOP_ORIGINS).includes(d.shop) || d.shop === "detail") ? d.shop : null;
       if (!shop) return;
       const reply = (m) => window.postMessage({ __ua_ext_out: true, shop, batch: d.batch, m }, location.origin);
       return handleImport(shop, d, reply);
@@ -1288,13 +1335,22 @@ p{margin:0;font-size:12px;color:#8593c7}
       try { e.source && e.source.postMessage({ type: "ua-ready" }, e.origin); } catch (err) {}
       return;
     }
-    if (!shop || !d || (d.type !== "ua-import" && d.type !== "ua-query") || d.shop !== shop) return;
+    if (!shop || !d || (d.type !== "ua-import" && d.type !== "ua-query")) return;
+    // 官方卡表網站可以送兩種：卡片資料（colors）和卡片效果（detail）
+    const real = d.shop === shop ? shop : shop === "colors" && d.shop === "detail" ? "detail" : null;
+    if (!real) return;
     const reply = (m) => { try { e.source && e.source.postMessage(m, e.origin); } catch (err) {} };
-    return handleImport(shop, d, reply);
+    return handleImport(real, d, reply);
   }
 
   async function handleImport(shop, d, reply) {
     if (!d || typeof d.batch !== "string") return;
+    if (d.type === "ua-query" && shop === "detail") {
+      // 匯入程式問：哪些卡的效果已經抓過（只抓新的）
+      await importsReady;
+      const dt = effImports().detail;
+      return reply({ type: "ua-done", batch: d.batch, known: Object.keys((dt && dt.items) || {}) });
+    }
     if (d.type === "ua-query") {
       // 匯入程式問：官方卡表哪些作品已經抓過（這一版起才有費用資料）
       await importsReady;
@@ -1321,7 +1377,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     const total = importCounts[shop] || 0;
     delete importCounts[shop];
     switchView("settings");
-    let msg = `已從 ${SOURCE_NAME(shop)} 匯入 ${total.toLocaleString()} 筆${shop === "colors" ? "卡片資料" : "價格"}`;
+    let msg = `已從 ${SOURCE_NAME(shop)} 匯入 ${total.toLocaleString()} 筆${shop === "colors" ? "卡片資料" : shop === "detail" ? "" : "價格"}`;
     if (gh && gh.token) {
       showImportOverlay(msg + "\n同步到 GitHub 中…");
       const r = await syncToGitHub();
@@ -1912,6 +1968,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     return Object.entries(d.cards).map(([k, q]) => ({ c: cardFor(k), q }));
   };
   window.UA = {
+    fxSplit: (t) => String(t).split(/(\[[^\]]{1,20}\])/),
     $, el, toast, deckEntries, isAP, imgCandidates, officialList, setImgChain, openZoom,
     deckName: () => deck().name, entriesOf,
     deckNameOf: (id) => (decks.find((x) => x.id === id) || deck()).name,

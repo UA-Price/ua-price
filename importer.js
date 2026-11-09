@@ -14,12 +14,15 @@
   const SITE = "__SITE__";
   const SITE_ORIGIN = EXT ? location.origin : new URL(SITE).origin;
   const host = location.host;
-  const shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
+  let shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
     : host.includes("merucarduniari") ? "meru" : host.includes("kapaipai") ? "kpp" : host.includes("unionarena-tcg.com") ? "colors" : null;
-  const SHOP_NAME = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", meru: "メルカード", kpp: "卡拍拍", colors: "官方卡表（卡片資料）" }[shop];
+  // 官方卡表網站有兩種工作：卡片資料（顏色・費用）和卡片效果（每張卡的詳細頁）
+  if (shop === "colors" && window.__UA_AUTO && window.__UA_AUTO.task === "detail") shop = "detail";
+  const NAMES = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", meru: "メルカード", kpp: "卡拍拍", colors: "官方卡表（卡片資料）", detail: "官方卡片效果" };
+  let SHOP_NAME = NAMES[shop];
   // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
   // 遊々亭、Hobby Station 5 秒；ドラゴンスター 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
-  const DELAY = shop === "dora" ? 10000 : shop === "colors" ? 2000 : 5000;
+  const DELAY = shop === "dora" ? 10000 : shop === "colors" || shop === "detail" ? 2000 : 5000;
   const COLORS = ["赤", "青", "黄", "緑", "紫"];
   const sets = {}; // 遊々亭的系列代碼 → 系列名稱
   // 等待用的計時器：分頁在背景時，Chrome 會把一般計時器拖慢到一分鐘一次，
@@ -529,6 +532,7 @@
       }
     }
     if (shop === "kpp") return runKpp();
+    if (shop === "detail") return runDetail();
     button("停止", false, () => { cancelled = true; say("停止中…（會把已讀到的先送出）"); });
     let series;
     if (mode === "all" || mode === "new") {
@@ -695,6 +699,65 @@
     afterSent(0);
   }
 
+  /* ---------- 官方卡片效果：每張卡讀一次詳細頁（只抓還沒抓過的） ---------- */
+  async function readDetail(num) {
+    const html = await fetch(location.origin + "/jp/cardlist/detail_iframe.php?card_no=" + encodeURIComponent(num), { credentials: "include" }).then((r) => r.text());
+    if (isDenied(html)) throw new Error("denied");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("img").forEach((img) => img.replaceWith("[" + (img.getAttribute("alt") || "") + "]"));
+    const f = {};
+    doc.querySelectorAll(".cardDataCol").forEach((dl) => {
+      const dt = dl.querySelector("dt"), dd = dl.querySelector("dd");
+      if (dt && dd) f[dt.textContent.replace(/\s+/g, "")] = dd.textContent.replace(/\s+/g, " ").trim();
+    });
+    if (!Object.keys(f).length) return null;
+    return [num, f["カード種類"] || "", f["BP"] || "", f["特徴"] || "", f["発生エナジー"] || "", f["効果"] || "", f["トリガー"] || ""];
+  }
+  async function runDetail() {
+    button("停止", false, () => { cancelled = true; say("停止中…（已讀到的會先送出）"); });
+    say("官方卡片效果：讀取作品清單…");
+    let titles = [];
+    try { titles = await seriesListColors(); } catch (e) { titles = []; }
+    if (!titles.length) {
+      const t = "找不到官方卡表的作品清單，可能網站改版了，請跟我說。";
+      say(t); reportDone(t, false); btns.textContent = ""; return finish(10000);
+    }
+    say("確認哪些卡已經抓過…");
+    const known = new Set((await askKnownTitles()) || []);
+    let batch = [], total = 0;
+    for (let i = 0; i < titles.length && !cancelled; i++) {
+      const t = titles[i];
+      progress(i / titles.length);
+      say(`官方卡片效果：第 ${i + 1} / ${titles.length} 個作品\n${t.label}\n這次已讀 ${total} 張`);
+      let nums = [];
+      try { nums = [...(await officialQuery(t.title, []))]; } catch (e) {
+        if (e.message === "denied") { stopReason = DENIED_MSG; break; }
+        continue;
+      }
+      await sleep(DELAY);
+      const todo = nums.filter((n) => !known.has(n));
+      for (let k = 0; k < todo.length && !cancelled; k++) {
+        say(`官方卡片效果：第 ${i + 1} / ${titles.length} 個作品（${t.label}）\n這個作品 ${k + 1} / ${todo.length} 張・這次已讀 ${total} 張\n（可以隨時停止，下次會接著抓沒抓過的）`);
+        let it = null;
+        try { it = await readDetail(todo[k]); } catch (e) {
+          if (e.message === "denied") { stopReason = DENIED_MSG; cancelled = true; break; }
+        }
+        if (it) { batch.push(it); all.push(it); total++; known.add(todo[k]); }
+        if (batch.length >= 40 && (await send(batch, t.label, false))) batch = [];
+        await sleep(DELAY);
+      }
+    }
+    progress(1);
+    say(`讀取完成，這次共 ${total} 張，傳送中…`);
+    btns.textContent = "";
+    const ok = await send(batch, "完成", true);
+    if (!ok) {
+      const t = `讀到 ${total} 張，但送不到查價之境網站。請確認網站分頁還開著，再試一次（已送出的不會不見）。`;
+      say(t); reportDone(t, false); return finish(15000);
+    }
+    afterSent(0);
+  }
+
   async function afterSent(failedSeries) {
     let text = `匯入完成：${all.length} 筆` + (failedSeries ? `（${failedSeries} 個系列讀取失敗）` : "") + (cancelled ? "（中途停止）" : "");
     if (stopReason) text += "\n⚠ " + stopReason;
@@ -714,9 +777,10 @@
     return;
   }
   if (shop === "colors") {
-    say("官方卡表：匯入每張卡的顏色、必要エナジー、消費 AP\n只抓新作品：只抓還沒抓過的作品（第一次會全部抓，約 30 分鐘；之後通常不到 1 分鐘）。\n全部重新抓：58 個作品約 30 分鐘。");
+    say("官方卡表：匯入每張卡的顏色、必要エナジー、消費 AP\n只抓新作品：只抓還沒抓過的作品（第一次會全部抓，約 30 分鐘；之後通常不到 1 分鐘）。\n全部重新抓：58 個作品約 30 分鐘。\n抓卡片效果：每張卡的效果文字、觸發、發生能源（第一次約 3～4 小時，可以中途停止，下次接著抓）。");
     button("只抓新作品", true, () => run("new"));
     button("全部重新抓", false, () => run("all"));
+    button("抓卡片效果", false, () => { shop = "detail"; SHOP_NAME = NAMES.detail; run("all"); });
     button("取消", false, () => finish(0));
     return;
   }
