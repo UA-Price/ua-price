@@ -198,7 +198,7 @@
   const TIMING_TAGS = ["登場時", "退場時", "アタック時", "ブロック時", "起動メイン", "自分のターン中", "相手のターン中"];
   const TIMING_ZH = { 登場時: "登場時", 退場時: "退場時", アタック時: "攻擊時", ブロック時: "防禦時", 起動メイン: "起動メイン" };
   const COLOR_ZH = { 赤: "紅", 青: "藍", 黄: "黃", 緑: "綠", 紫: "紫" };
-  const normTag = (t) => String(t).replace(/\s+/g, "").replace(/[①❶１]/g, "1").replace(/[②❷２]/g, "2").replace(/[③❸３]/g, "3").replace(/＋/g, "+");
+  const normTag = (t) => String(t).replace(/\s+/g, "").replace(/[（(]\s*([0-9０-９①-⑨❶-❾+＋]+)\s*[）)]/g, "$1").replace(/[①❶１]/g, "1").replace(/[②❷２]/g, "2").replace(/[③❸３]/g, "3").replace(/＋/g, "+");
   function keywordOf(tag) {
     let m;
     if (tag === "ステップ") return { step: true };
@@ -224,8 +224,14 @@
       const m = part.match(/^\[(.*)\]$/);
       if (!m) { if (cur) cur.text += part; continue; }
       const tag = normTag(m[1]);
-      if (TIMING_TAGS.includes(tag)) { cur = { timing: tag, turn1: false, text: "" }; abil.push(cur); continue; }
-      if (tag === "ターン1") { if (cur) cur.turn1 = true; continue; }
+      if (TIMING_TAGS.includes(tag)) { cur = { timing: tag, turn1: false, text: "", costs: [], where: "", tags: "" }; abil.push(cur); continue; }
+      if (tag === "ターン1") { if (cur) { cur.turn1 = true; cur.tags += "［ターン1］"; } continue; }
+      // 時機標籤後面、效果文字前面的標籤：發動條件（フロントLにある場合）或費用（レストにする、手札を1枚場外に置く…）
+      if (cur && !cur.text.trim() && !keywordOf(tag)) {
+        if (/にある場合$/.test(tag)) cur.where = tag; else cur.costs.push(tag);
+        cur.tags += `［${m[1]}］`;
+        continue;
+      }
       const k = keywordOf(tag);
       // 句子開頭（不在時機效果裡、或前一句已經結束）的關鍵字 = 這張卡本身就有；寫在效果句子裡的 = 有條件才有
       if (k && (!cur || /。\s*$/.test(cur.text))) { Object.assign(kw, k); cur = null; continue; }
@@ -272,7 +278,7 @@
     for (const a of fxOf(c).abil.filter((x) => x.timing === timing)) {
       FXQ.push({
         title: `${who(PL(uid))}「${c.name}」的${TIMING_ZH[timing] || timing}效果`,
-        uid, text: `［${timing}］${a.turn1 ? "［ターン1］" : ""}${a.text}`,
+        uid, text: `［${timing}］${a.tags || ""}${a.text}`,
         actions: actionsFor(a.text, PL(uid), uid),
         buttons: [{ label: "處理完了", primary: true }],
       });
@@ -306,18 +312,24 @@
   }
 
   // ---------- 選目標 ----------
-  function pickCards(title, uids, n, upTo, onPick) {
+  function pickCards(title, uids, n, upTo, onPick, rule = null, note = "") {
     if (!uids.length) { toast("沒有符合的卡可以選"); return; }
     const sel = [];
     const box = $("#pySheet");
     const draw = () => {
       box.textContent = "";
-      box.append(el("div", { class: "py-sh-head" }, el("div", {}, el("b", { text: title }), el("p", { text: upTo ? `最多選 ${n} 張` : `選 ${n} 張` }))));
+      box.append(el("div", { class: "py-sh-head" }, el("div", {}, el("b", { text: title }), el("p", { text: (n >= 99 ? "可以選多張" : upTo ? `最多選 ${n} 張` : `選 ${n} 張`) + (note ? `・${note}` : "") }))));
       const grid = el("ul", { class: "py-pile" });
       uids.forEach((u) => {
         const li = cardEl(u, { bp: true, mod: slotMod(u), cls: sel.includes(u) ? "picked" : "", onclick: () => {
           const k = sel.indexOf(u);
-          if (k >= 0) sel.splice(k, 1); else { if (sel.length >= n) sel.shift(); sel.push(u); }
+          if (k >= 0) sel.splice(k, 1);
+          else {
+            const why = rule && rule(sel, u);
+            if (why) return toast(why);
+            if (sel.length >= n) sel.shift();
+            sel.push(u);
+          }
           draw();
         } });
         grid.append(li);
@@ -340,6 +352,44 @@
     log(`${who(PL(uid))}：${nameOf(uid)} BP${d > 0 ? "+" : ""}${d}（本回合）${why ? "・" + why : ""}`);
     const now = bpNow(uid);
     if (now != null && now <= 0) retire(uid, "BP 降到 0 以下");
+  }
+  // 「このキャラのアタック終了時、…」：攻擊整個結束（對戰或傷害、觸發都處理完）後跳出來
+  // 看角色下面的卡（突襲的卡、效果放下去的卡），可以拿出來或翻面
+  function underView(hostUid) {
+    const f = slotOf(hostUid);
+    if (!f) return;
+    const P = PL(hostUid);
+    const box = $("#pySheet");
+    box.textContent = "";
+    const fd = f.s.fd || [];
+    box.append(el("div", { class: "py-sh-head" }, el("div", {}, el("b", { text: `「${nameOf(hostUid)}」下面的卡（${(f.s.under || []).length} 張）` }),
+      el("p", { text: `背面朝上 ${fd.length} 張（標「背」）。點卡片可以拿出來或翻面。角色離開場上時，下面的卡會全部放到場外。` }))));
+    const grid = el("ul", { class: "py-pile" });
+    (f.s.under || []).forEach((u) => grid.append(cardEl(u, { badge: fd.includes(u) ? "背" : "", onclick: () => {
+      const take = (pile, label) => ({ label, run: () => { snap(); f.s.under = f.s.under.filter((x) => x !== u); f.s.fd = (f.s.fd || []).filter((x) => x !== u); P[pile].push(u); log(`${who(P)}：「${nameOf(hostUid)}」下面的 ${nameOf(u)} → ${PILE_NAME[pile]}`); render(); } });
+      const isDown = (f.s.fd || []).includes(u);
+      sheet(nameOf(u), `在「${nameOf(hostUid)}」下面・${isDown ? "背面朝上" : "正面朝上"}`, [
+        take("hand", "加入手牌"), take("outside", "放到場外"), take("remove", "放到移除區"),
+        { label: isDown ? "翻成正面" : "翻成背面", run: () => { snap(); f.s.fd = isDown ? f.s.fd.filter((x) => x !== u) : [...(f.s.fd || []), u]; render(); underView(hostUid); } },
+      ], card(u));
+    } })));
+    box.append(grid);
+    box.append(el("div", { class: "py-sh-list row" }, el("button", { type: "button", class: "py-sh-btn cancel", onclick: closeSheet }, "關閉")));
+    $("#pySheetWrap").hidden = false;
+  }
+  // 場上卡片下方的標記：突襲／下面背面朝上的張數
+  function underBadge(s, short) {
+    const n = (s.under || []).length, d = (s.fd || []).length;
+    if (!n) return "";
+    const raidN = n - d;
+    return [raidN ? (short ? "突" : "突襲") : "", d ? (short ? `背${d}` : `下背 ${d}`) : ""].filter(Boolean).join("・");
+  }
+  function fireAttackEnd(uid) {
+    const c = card(uid);
+    if (!c || !c.effect || !/アタック終了時/.test(c.effect)) return;
+    const txt = c.effect.slice(c.effect.indexOf("このキャラのアタック終了時") >= 0 ? c.effect.indexOf("このキャラのアタック終了時") : c.effect.indexOf("アタック終了時"));
+    const sen = txt.split(/(?=\[)/)[0];
+    FXQ.push({ title: `${who(PL(uid))}「${c.name}」的攻擊結束時效果`, uid, text: sen, note: "", actions: actionsFor(sen, PL(uid), uid), buttons: [{ label: "處理完了", primary: true }] });
   }
   function retire(uid, why) {
     const P = PL(uid);
@@ -404,11 +454,64 @@
         const d = (m[1] === "+" ? 1 : -1) * +m[2];
         acts.push({ label: `這張角色 BP${d > 0 ? "+" : "−"}${Math.abs(d)}（本回合）`, run: (done) => { if (!slotOf(srcUid)) return toast("這張卡不在場上"); snap(); addBP(srcUid, d, "效果"); done(); } });
       }
+      // 把卡放到這張角色下面（例：自分の場外から赤の〈綾波 レイ〉を各必要エナジーにつき1枚までこのキャラの下に裏向きで置く）
+      if ((m = sen.match(/(?:自分の)?(場外|手札|ライフ|山札の上から(\d+)枚)(?:の中)?から(.*?)このキャラの下に(裏向き|表向き)?で?置/)) && srcUid) {
+        const src = m[1].startsWith("場外") ? "outside" : m[1].startsWith("手札") ? "hand" : m[1].startsWith("ライフ") ? "life" : "deck";
+        const topN = m[2] ? +m[2] : 0, spec = m[3] || "", down = m[4] !== "表向き";
+        const col = (spec.match(/(赤|青|黄|緑|紫)の/) || [])[1];
+        const names = [...spec.matchAll(/〈([^〉]+)〉/g)].map((x) => x[1].replace(/\s+/g, ""));
+        const max = /各必要エナジーにつき/.test(spec) ? 99 : +((spec.match(/(\d+)枚/) || [])[1] || 1); // 「各必要エナジーにつき1枚まで」= 每種費用 1 張、不限總數
+        const distinct = /各必要エナジーにつき1枚/.test(spec);
+        const srcName = { outside: "場外", hand: "手牌", life: "生命區", deck: `牌庫上面 ${topN} 張` }[src];
+        acts.push({
+          label: `從${srcName}選${col ? (COLOR_ZH[col] || col) + "色" : ""}${names.length ? names.map((x) => `〈${x}〉`).join("或") : "卡"}放到這張角色下面（${down ? "背面朝上" : "正面朝上"}${distinct ? "，每種費用最多 1 張" : ""}）`,
+          run: (done) => {
+            const f = slotOf(srcUid);
+            if (!f) return toast("這張角色不在場上");
+            const pool = src === "deck" ? P.deck.slice(0, topN) : P[src].slice();
+            const cands = pool.filter((u) => { const c = card(u); return (!col || c.color === col) && (!names.length || names.some((x) => c.name.replace(/\s+/g, "").includes(x))); });
+            const rule = distinct ? (sel, u) => (sel.some((x) => card(x).energy === card(u).energy) ? `已經選了必要エナジー ${card(u).energy} 的卡（每種費用最多 1 張）` : null) : null;
+            pickCards(`放到「${nameOf(srcUid)}」下面`, cands, max, true, (list) => {
+              snap();
+              for (const u of list) {
+                detach(u);
+                f.s.under = f.s.under || [];
+                f.s.under.push(u);
+                if (down) { f.s.fd = f.s.fd || []; f.s.fd.push(u); }
+              }
+              log(`${who(P)}：${list.map(nameOf).join("、")} 放到「${nameOf(srcUid)}」下面（${down ? "背面朝上" : "正面朝上"}）`);
+              done();
+            }, rule, distinct ? "每種必要エナジー最多 1 張" : "");
+          },
+        });
+      }
+      // 看下面背面的卡，選幾張加入手牌（例：このキャラの下の裏向きのカードを見て、2枚まで公開し手札に加える）
+      if ((m = sen.match(/このキャラの下の(裏向きの)?カードを見て、(\d+)枚まで(?:公開し)?手札に加え/)) && srcUid) {
+        const n = +m[2], onlyDown = !!m[1];
+        acts.push({
+          label: `看這張角色下面${onlyDown ? "背面" : ""}的卡，最多 ${n} 張加入手牌`,
+          run: (done) => {
+            const f = slotOf(srcUid);
+            if (!f) return toast("這張角色不在場上");
+            const pool = (f.s.under || []).filter((u) => !onlyDown || (f.s.fd || []).includes(u));
+            pickCards(`「${nameOf(srcUid)}」下面的卡`, pool, n, true, (list) => {
+              snap();
+              for (const u of list) { f.s.under = f.s.under.filter((x) => x !== u); f.s.fd = (f.s.fd || []).filter((x) => x !== u); P.hand.push(u); }
+              log(`${who(P)}：從「${nameOf(srcUid)}」下面拿 ${list.length} 張加入手牌（${list.map(nameOf).join("、")}）`);
+              done();
+            });
+          },
+        });
+      }
+      // 觸發的レイド：讓這張卡突襲（不用付 AP，要滿足能源）
+      if (/レイドさせ/.test(sen) && srcUid && P.reveal.includes(srcUid)) {
+        acts.push({ label: "突襲到自己場上的角色（不用付 AP）", run: (done) => { raid(srcUid, true); done(); } });
+      }
       if ((m = sen.match(/山札の上から(\d+)枚(?:を)?見/))) {
         const n = +m[1];
         acts.push({ label: `看自己牌庫上面 ${n} 張`, run: (done) => { pileView("deck", P.deck.slice(0, n), `${who(P)}的牌庫上面 ${n} 張`, P); done(); } });
       }
-      if (/自分の場外/.test(sen)) acts.push({ label: "打開自己的場外", run: (done) => { pileView("outside", P.outside, `${who(P)}的場外`, P); done(); } });
+      if (/自分の場外/.test(sen) && !/このキャラの下に/.test(sen)) acts.push({ label: "打開自己的場外", run: (done) => { pileView("outside", P.outside, `${who(P)}的場外`, P); done(); } });
       if ((m = sen.match(/手札を(\d+)枚(?:選び、)?場外に置/))) {
         const n = +m[1];
         acts.push({ label: `選自己手牌 ${n} 張放到場外`, run: (done) => pickCards(`${who(P)}的手牌`, P.hand.slice(), n, false, (list) => { snap(); list.forEach((u) => toPile(u, "outside")); log(`${who(P)}：手牌 ${list.length} 張放到場外（效果）`); done(); }) });
@@ -427,21 +530,33 @@
     const f = slotOf(uid);
     const turnKey = `${S.cur}-${P.turn}`;
     if (a.turn1 && f && f.s.used && f.s.used[a.text] === turnKey) return toast("這個效果這回合已經用過了（ターン1）");
-    const [costPart, effPart] = a.text.includes("：") ? [a.text.slice(0, a.text.indexOf("：")), a.text.slice(a.text.indexOf("：") + 1)] : ["", a.text];
-    const apCost = +((costPart.match(/APを(\d+)支払/) || [])[1] || 0);
-    const needRest = /レストにする/.test(costPart);
-    const selfRetire = /このカードを退場/.test(costPart);
+    if (a.where === "フロントLにある場合" && (!f || f.line !== "front")) return toast("這張卡要在前線才能發動");
+    if (a.where === "エナジーLにある場合" && (!f || f.line !== "energy")) return toast("這張卡要在能源線才能發動");
+    // 費用：官方用圖示標在效果前面（舊格式寫在「：」前面）
+    const costText = a.costs.join("、") + (a.text.includes("：") ? "、" + a.text.slice(0, a.text.indexOf("：")) : "");
+    const effPart = a.text.includes("：") ? a.text.slice(a.text.indexOf("：") + 1) : a.text;
+    const apCost = +((costText.match(/APを(\d+)支払/) || [])[1] || 0);
+    const needRest = /レストにする/.test(costText);
+    const selfRetire = /このカードを退場/.test(costText);
+    const discard = +((costText.match(/手札を(\d+)枚場外に置/) || [])[1] || 0);
     if (apCost && apAvail(P) < apCost) return toast(`AP 不夠（要支付 ${apCost}AP）`);
     if (needRest && f && f.s.rest) return toast("這張卡已經休息，沒辦法再「レストにする」");
-    snap();
-    if (apCost) payAP(P, apCost);
-    if (needRest && f) f.s.rest = true;
-    if (a.turn1 && f) { f.s.used = f.s.used || {}; f.s.used[a.text] = turnKey; }
-    log(`${who(P)}：發動「${nameOf(uid)}」的起動メイン${apCost ? `（支付 ${apCost}AP）` : ""}`);
-    if (selfRetire) retire(uid, "效果的費用");
-    FXQ.unshift({ title: `${who(P)}「${nameOf(uid)}」的起動メイン效果`, uid, text: `［起動メイン］${a.turn1 ? "［ターン1］" : ""}${a.text}`, actions: actionsFor(effPart, P, uid), buttons: [{ label: "處理完了", primary: true }] });
-    render();
-    renderLife();
+    if (discard && P.hand.length < discard) return toast(`手牌不夠（要放 ${discard} 張到場外）`);
+    const go = (discarded = []) => {
+      snap();
+      if (apCost) payAP(P, apCost);
+      if (needRest && f) f.s.rest = true;
+      discarded.forEach((u) => toPile(u, "outside"));
+      if (a.turn1 && f) { f.s.used = f.s.used || {}; f.s.used[a.text] = turnKey; }
+      const paid = [apCost ? `支付 ${apCost}AP` : "", needRest ? "轉為休息" : "", discarded.length ? `手牌 ${discarded.length} 張放到場外` : "", selfRetire ? "讓這張卡退場" : ""].filter(Boolean).join("、");
+      log(`${who(P)}：發動「${nameOf(uid)}」的起動メイン${paid ? `（${paid}）` : ""}`);
+      if (selfRetire) retire(uid, "效果的費用");
+      FXQ.unshift({ title: `${who(P)}「${nameOf(uid)}」的起動メイン效果`, uid, text: `［起動メイン］${a.tags || ""}${a.text}`, actions: actionsFor(effPart, P, uid), buttons: [{ label: "處理完了", primary: true }] });
+      render();
+      renderLife();
+    };
+    if (discard) return pickCards(`費用：選 ${discard} 張手牌放到場外`, P.hand.slice(), discard, false, go);
+    go();
   }
 
   // 觸發：翻開生命卡時
@@ -543,7 +658,12 @@
     renderLife();
   }
   function closeLife() { LP = null; AT = null; FXQ.length = 0; renderLife(); }
-  function closeLifeOnly() { LP = null; renderLife(); } // 生命視窗按「好」：接著處理排隊中的觸發
+  function closeLifeOnly() { // 生命視窗按「好」：接著處理排隊中的觸發，最後是攻擊結束時效果
+    const atk = LP && LP.done && LP.atk;
+    LP = null;
+    if (atk) fireAttackEnd(atk);
+    renderLife();
+  }
 
   /* ---------- 攻擊流程：指定攻擊 → 對手決定防禦 → 對戰或造成傷害（自動接下去） ---------- */
   // 規則書：攻擊角色轉為休息 → 對手可以用前線活動的角色防禦（轉為休息）→
@@ -629,9 +749,10 @@
         if (kwOf(T).noImpact) impact = 0;
         retire(T, "對戰戰敗");
         if (impact > 0 && Dp.life.length) FXQ.push({ task: () => { log(`${nameOf(atk)}：インパクト ${impact}`); takeDamage(Dp, impact, atk); } });
+        else fireAttackEnd(atk); // 有インパクト的話，等翻完生命才算攻擊結束
         AT = null; render(); renderLife();
       };
-      const winD = () => { log(`對戰結果：${who(Dp)}的「${nameOf(T)}」${known ? `（BP ${td}）` : ""}勝，${nameOf(AT.uid)}${known ? `（BP ${ta}）` : ""} 不會退場`); AT = null; renderLife(); render(); };
+      const winD = () => { log(`對戰結果：${who(Dp)}的「${nameOf(T)}」${known ? `（BP ${td}）` : ""}勝，${nameOf(AT.uid)}${known ? `（BP ${ta}）` : ""} 不會退場`); fireAttackEnd(AT.uid); AT = null; renderLife(); render(); };
       const row = el("div", { class: "py-row py-life-btns" });
       if (atkWins === null) row.append(
         el("button", { type: "button", class: "btn", onclick: winD }, "防禦方勝"),
@@ -728,24 +849,24 @@
       { label: "仍然使用（不扣 AP，例如有效果讓它免費）", run: () => run(0) },
     ]);
   }
-  function raid(uid) {
+  function raid(uid, free = false) {
     const P = PL(uid);
     const targets = [];
     for (const line of ["front", "energy"]) P[line].forEach((s, i) => { if (s) targets.push({ line, i, s }); });
     if (!targets.length) return toast("場上沒有可以突襲的角色");
     sheet("突襲：選擇要重疊在哪張角色上", "突襲元卡的效果會無效；突襲後置為活動。", targets.map(({ line, i, s }) => ({
       label: `${LINE_NAME[line]}：${nameOf(s.uid)}`,
-      run: () => raidOnto(uid, line, i),
+      run: () => raidOnto(uid, line, i, free),
     })));
   }
-  function raidOnto(uid, line, i) {
+  function raidOnto(uid, line, i, free = false) {
     const P = PL(uid);
     const s = P[line][i];
     if (!s) return;
-    playFromHand(uid, (cost) => {
+    (free ? (fn) => checkEnergy(uid, () => fn(0)) : (fn) => playFromHand(uid, fn))((cost) => {
       snap();
       detach(uid);
-      P[line][i] = { uid, rest: false, under: [s.uid, ...(s.under || [])] };
+      P[line][i] = { uid, rest: false, under: [s.uid, ...(s.under || [])], fd: (s.fd || []).slice() };
       if (cost) payAP(P, cost);
       log(`${who(P)}：${nameOf(uid)} 突襲到「${nameOf(s.uid)}」上${cost ? `（支付 ${cost}AP）` : ""}`);
       render();
@@ -829,7 +950,7 @@
       };
       if (ph === 1) { if (mine) lineMoves(); else note = PHASE_BLOCK[1]; }
       else if (ph === 2) {
-        if (mine) fxOf(c).abil.filter((a) => a.timing === "起動メイン").forEach((a) => items.unshift({ label: `發動起動メイン${a.turn1 ? "（ターン1）" : ""}：${a.text.replace(/［[^］]*］/g, "").slice(0, 26)}…`, run: () => activate(uid, a) }));
+        if (mine) fxOf(c).abil.filter((a) => a.timing === "起動メイン").forEach((a) => items.unshift({ label: `發動起動メイン${a.turn1 ? "（ターン1）" : ""}${a.costs.length ? `〔${a.costs.join("・")}〕` : ""}：${a.text.replace(/［[^］]*］/g, "").slice(0, 24)}…`, run: () => activate(uid, a) }));
         effects();
         if (mine) lineMoves();
       }
@@ -837,7 +958,16 @@
         if (mine && zone === "front" && s && !s.rest) items.push({ label: "攻擊", run: () => startAttack(uid) });
         effects(); // 觸發效果可能讓角色退場、回手等
       } else note = PHASE_BLOCK[ph];
-      if (s && s.under && s.under.length) items.push({ label: `查看突襲底下的卡（${s.under.length} 張）`, run: () => pileView(null, s.under, `「${c.name}」底下的卡`) });
+      if (s && s.under && s.under.length) items.push({ label: `下面的卡（${s.under.length} 張${(s.fd || []).length ? `・背面 ${s.fd.length} 張` : ""}）`, run: () => underView(uid) });
+      if (s && (ph === 2 || ph === 3)) items.push({ label: "從場外選卡放到這張角色下面（背面朝上）", run: () => {
+        pickCards(`放到「${c.name}」下面`, P.outside.slice(), 99, true, (list) => {
+          snap();
+          const f2 = slotOf(uid);
+          for (const u of list) { detach(u); f2.s.under = f2.s.under || []; f2.s.under.push(u); f2.s.fd = f2.s.fd || []; f2.s.fd.push(u); }
+          log(`${who(P)}：${list.map(nameOf).join("、")} 放到「${c.name}」下面（背面朝上）`);
+          render();
+        });
+      } });
     } else {
       // 牌庫／場外／移除區／生命區／觸發確認區：主要階段（效果）和攻擊階段（觸發效果）才能動
       if (ph === 2 || ph === 3) {
@@ -1133,7 +1263,7 @@
     if (!active) {
       for (const line of ["front", "energy"]) {
         const row = el("ul", { class: "py-mini" });
-        P[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, badge: s.under && s.under.length ? "突" : "", onclick: () => cardMenu(s.uid, line), bp: true, mod: s.mod || 0 }) : el("li", { class: "py-slot" })));
+        P[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, badge: underBadge(s, true), onclick: () => cardMenu(s.uid, line), bp: true, mod: s.mod || 0 }) : el("li", { class: "py-slot" })));
         box.append(el("div", { class: "py-zone mini" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
       }
     }
@@ -1165,7 +1295,7 @@
       const row = el("ul", { class: `py-line ${line}`, "data-drop": line, "data-owner": P.idx });
       P[line].forEach((s, i) => {
         if (!s) row.append(el("li", { class: "py-slot", "data-drop": line, "data-slot": i, "data-owner": P.idx }));
-        else row.append(cardEl(s.uid, { rest: s.rest, badge: s.under && s.under.length ? "突襲" : "", onclick: () => cardMenu(s.uid, line), drag: line, drop: { zone: line, slot: i, owner: P.idx }, bp: true, mod: s.mod || 0 }));
+        else row.append(cardEl(s.uid, { rest: s.rest, badge: underBadge(s, false), onclick: () => cardMenu(s.uid, line), drag: line, drop: { zone: line, slot: i, owner: P.idx }, bp: true, mod: s.mod || 0 }));
       });
       main.append(el("div", { class: "py-zone" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
     }
