@@ -385,6 +385,16 @@
       c.color = ci && COLOR_INFO[ci[0]] ? ci[0] : "";
       c.energy = ci && Number.isInteger(ci[2]) ? ci[2] : null; // 必要エナジー
       c.ap = ci && Number.isInteger(ci[3]) ? ci[3] : null;     // 消費 AP
+      // 官方卡表（顏色・費用）沒有這張卡時，用官方卡片效果裡的必要エナジー、消費 AP 補上（例如舊作品出續作）
+      if (!ci && dt && dt[7]) {
+        const nm = String(dt[7]).match(/(赤|青|黄|緑|紫)\s*(\d+|[-－ー])?/);
+        if (nm && COLOR_INFO[nm[1]]) {
+          c.color = nm[1];
+          c.energy = nm[2] && /\d/.test(nm[2]) ? +nm[2] : 0;
+        }
+        const a = parseInt(dt[8], 10);
+        if (Number.isInteger(a)) c.ap = a;
+      }
       c.search = (c.name + " " + c.num + " " + c.rar).toLowerCase();
       c.best = bestOffer(c);
       const v = VARIANTS.get(c.num) || [];
@@ -1242,7 +1252,8 @@ p{margin:0;font-size:12px;color:#8593c7}
     let count = 0;
     for (const it of items) {
       if (!Array.isArray(it) || !NUM_RE.test(String(it[0]))) continue;
-      box.items[it[0]] = [str(it[1], 20), str(it[2], 12), str(it[3], 80), str(it[4], 20), str(it[5], 1500), str(it[6], 600), now];
+      // [種類, BP, 特徵, 發生能源, 效果, 觸發, 時間, 必要エナジー, 消費AP]
+      box.items[it[0]] = [str(it[1], 20), str(it[2], 12), str(it[3], 80), str(it[4], 20), str(it[5], 1500), str(it[6], 600), now, str(it[7], 20), str(it[8], 6)];
       count++;
     }
     box.t = now;
@@ -1348,8 +1359,10 @@ p{margin:0;font-size:12px;color:#8593c7}
     if (d.type === "ua-query" && shop === "detail") {
       // 匯入程式問：哪些卡的效果已經抓過（只抓新的）
       await importsReady;
-      const dt = effImports().detail;
-      return reply({ type: "ua-done", batch: d.batch, known: Object.keys((dt && dt.items) || {}) });
+      // 已經抓過的卡＝有效果資料，而且（有必要エナジー資料，或官方卡表已經有它的顏色・費用）
+      const ef = effImports();
+      const dtI = (ef.detail && ef.detail.items) || {}, coI = (ef.colors && ef.colors.items) || {};
+      return reply({ type: "ua-done", batch: d.batch, known: Object.keys(dtI).filter((k) => (dtI[k][7] && dtI[k][7] !== "") || coI[k]) });
     }
     if (d.type === "ua-query") {
       // 匯入程式問：官方卡表哪些作品已經抓過（這一版起才有費用資料）

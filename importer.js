@@ -711,7 +711,7 @@
       if (dt && dd) f[dt.textContent.replace(/\s+/g, "")] = dd.textContent.replace(/\s+/g, " ").trim();
     });
     if (!Object.keys(f).length) return null;
-    return [num, f["カード種類"] || "", f["BP"] || "", f["特徴"] || "", f["発生エナジー"] || "", f["効果"] || "", f["トリガー"] || ""];
+    return [num, f["カード種類"] || "", f["BP"] || "", f["特徴"] || "", f["発生エナジー"] || "", f["効果"] || "", f["トリガー"] || "", f["必要エナジー"] || "", f["消費AP"] || ""];
   }
   async function runDetail() {
     button("停止", false, () => { cancelled = true; say("停止中…（已讀到的會先送出）"); });
