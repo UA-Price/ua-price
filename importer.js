@@ -28,7 +28,8 @@
   // 等待用的計時器：分頁在背景時，Chrome 會把一般計時器拖慢到一分鐘一次，
   // 所以改用 Web Worker 計時（不受這個節流影響），讀取間隔還是照設定的秒數。
   let timerWorker = null;
-  try {
+  // 官方卡表網站的安全設定不允許這種計時器（會在擴充功能留下錯誤紀錄），所以官方卡表直接用一般計時器
+  if (!host.includes("unionarena-tcg.com")) try {
     const url = URL.createObjectURL(new Blob(["onmessage=function(e){setTimeout(function(){postMessage(e.data.id)},e.data.ms)}"], { type: "text/javascript" }));
     timerWorker = new Worker(url);
   } catch (e) { timerWorker = null; } // 網站不允許時，改用一般計時器
