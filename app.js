@@ -1774,7 +1774,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     });
     $("#btnCheapest").addEventListener("click", swapToCheapest);
     $("#btnHand").addEventListener("click", openHand);
-    $("#btnPlay").addEventListener("click", () => { if (window.UAPlay && isAdmin()) UAPlay.start($("#playDeck").value, $("#playDeckB").value); }); // 測試中：只給管理端
+    $("#btnPlay").addEventListener("click", () => { if (window.UAPlay && isAdmin()) UAPlay.start($("#playDeck").value, $("#playDeckB").value, $("#playAI").checked); }); // 測試中：只給管理端
     $("#playDeck").addEventListener("change", renderPlayPanel);
     $("#playDeckB").addEventListener("change", renderPlayPanel);
     $("#handClose").addEventListener("click", () => closeHand());

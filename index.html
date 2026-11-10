@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-180.png?v=1">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="查價之境">
-<link rel="stylesheet" href="style.css?v=20261110a">
+<link rel="stylesheet" href="style.css?v=20261110b">
 </head>
 <body class="view-search">
 
@@ -131,6 +131,7 @@
         <span id="playInfoB" class="play-info"></span>
       </label>
     </div>
+    <label class="play-ai"><input type="checkbox" id="playAI" checked> 玩家 B 由電腦操作（跟電腦對練）</label>
     <button id="btnPlay" class="btn primary play-start" type="button">開始練習對戰</button>
     <ul class="play-notes">
       <li>開局：決定誰先攻 → 先攻玩家先決定換不換手牌，再換後攻玩家 → 雙方生命區各放 7 張。</li>
@@ -138,6 +139,7 @@
       <li>起始階段自動：卡片置為活動、放 AP 卡（先攻 1/2/3、後攻 2/2/3 張）、抽 1 張（先攻第 1 回合不抽）。</li>
       <li>點手牌或場上的卡會跳出選單：登場、突襲、使用事件、移動、攻擊、退場等，登場會自動扣 AP。</li>
       <li>按錯可以「復原」；手機的返回鍵會先關選單，再關對戰桌。</li>
+      <li>勾「玩家 B 由電腦操作」就是跟電腦對練：電腦會照規則出牌、移動、攻擊、防禦、選你的生命卡翻開，認得的效果會自動使用（目標挑 BP 最高的），電腦的手牌不會給你看。</li>
     </ul>
     </div>
   </section>
@@ -337,7 +339,7 @@
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js?v=20261110a"></script>
-<script src="play.js?v=20261110a"></script>
+<script src="app.js?v=20261110b"></script>
+<script src="play.js?v=20261110b"></script>
 </body>
 </html>
