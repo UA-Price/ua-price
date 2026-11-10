@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icon-180.png?v=1">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="查價之境">
-<link rel="stylesheet" href="style.css?v=20261110b">
+<link rel="stylesheet" href="style.css?v=20261110c">
 </head>
 <body class="view-search">
 
@@ -38,7 +38,7 @@
   <nav class="tabs" role="tablist">
     <button data-view="search" class="tab active" role="tab">找卡</button>
     <button data-view="deck" class="tab" role="tab">卡組 <span id="deckBadge" class="badge">0</span></button>
-    <button data-view="play" class="tab admin-only" role="tab">對戰<span class="tab-beta">測試</span></button>
+    <button data-view="play" class="tab" role="tab">對戰<span class="tab-beta">測試</span></button>
     <button data-view="settings" class="tab" role="tab"><span class="admin-only">匯入・設定</span><span class="viewer-only">價格資料</span></button>
   </nav>
   <div class="top-btns">
@@ -117,10 +117,10 @@
   </section>
 
   <!-- ========== 匯入・設定 ========== -->
-  <section id="panelPlay" class="panel panel-play admin-only">
+  <section id="panelPlay" class="panel panel-play">
     <div class="block">
     <h3>練習對戰 <span class="tab-beta">測試中</span></h3>
-    <p class="hint">玩家 A、B 輪流的對戰桌（你一個人操作兩邊），照官方規則的回合流程進行；卡片效果、防禦和 BP 比較請自己判斷。目前只有管理端看得到。</p>
+    <p class="hint">玩家 A、B 輪流的對戰桌（你一個人操作兩邊），照官方規則的回合流程進行；卡片效果、防禦和 BP 比較請自己判斷。目前還在測試中，有問題歡迎回報。</p>
     <div class="play-picks">
       <label class="play-pick">玩家 A 的卡組
         <select id="playDeck" aria-label="玩家 A 的卡組"></select>
@@ -285,14 +285,14 @@
     </details>
 
     <details>
-      <summary>測試起手<span class="admin-only">、練習對戰</span></summary>
+      <summary>測試起手、練習對戰</summary>
       <ul>
         <li>「測試起手」：洗牌後看起手 7 張，可以換手牌一次、繼續抽牌。</li>
-        <li class="admin-only">「對戰」分頁（測試中，只有管理端看得到）：選玩家 A、B 的卡組，你一個人輪流操作兩邊。決定先攻 → 雙方換手牌 → 各放 7 張生命，接著照回合流程（起始・移動・主要・攻擊・結束）進行；左邊是玩家 A、右邊是玩家 B 的資訊，中間是目前回合玩家的場地。</li>
-        <li class="admin-only">起始階段會自動把卡置為活動、放 AP 卡（先攻 1/2/3、後攻 2/2/3 張）、抽 1 張（先攻第 1 回合不抽）。</li>
-        <li class="admin-only">手牌可以直接拖到場上登場、拖到角色上突襲、拖到場外使用事件；點卡片也會跳出選單。登場時會自動扣 AP。</li>
-        <li class="admin-only">卡片效果、對手的防禦和 BP 比較請自己判斷。按「受到 1 傷害」會翻開生命區的卡做觸發確認。</li>
-        <li class="admin-only">按錯了可以按「復原」退回上一步。</li>
+        <li>「對戰」分頁（測試中）：選玩家 A、B 的卡組，你一個人輪流操作兩邊。決定先攻 → 雙方換手牌 → 各放 7 張生命，接著照回合流程（起始・移動・主要・攻擊・結束）進行；左邊是玩家 A、右邊是玩家 B 的資訊，中間是目前回合玩家的場地。</li>
+        <li>起始階段會自動把卡置為活動、放 AP 卡（先攻 1/2/3、後攻 2/2/3 張）、抽 1 張（先攻第 1 回合不抽）。</li>
+        <li>手牌可以直接拖到場上登場、拖到角色上突襲、拖到場外使用事件；點卡片也會跳出選單。登場時會自動扣 AP。</li>
+        <li>卡片效果、對手的防禦和 BP 比較請自己判斷。按「受到 1 傷害」會翻開生命區的卡做觸發確認。</li>
+        <li>按錯了可以按「復原」退回上一步。</li>
       </ul>
     </details>
     <details>
@@ -339,7 +339,7 @@
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js?v=20261110b"></script>
-<script src="play.js?v=20261110b"></script>
+<script src="app.js?v=20261110c"></script>
+<script src="play.js?v=20261110c"></script>
 </body>
 </html>

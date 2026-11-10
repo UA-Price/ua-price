@@ -1651,7 +1651,6 @@ p{margin:0;font-size:12px;color:#8593c7}
   /* ======================= 畫面切換與事件 ======================= */
   function switchView(v) {
     // 只換掉 view-xxx，保留 admin、modal-open 等其他狀態
-    if (v === "play" && !isAdmin()) v = "search"; // 對戰測試中：只給管理端
     document.body.classList.remove("view-search", "view-deck", "view-settings", "view-play");
     if (v === "play") renderPlayPanel();
     document.body.classList.add("view-" + v);
@@ -1774,7 +1773,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     });
     $("#btnCheapest").addEventListener("click", swapToCheapest);
     $("#btnHand").addEventListener("click", openHand);
-    $("#btnPlay").addEventListener("click", () => { if (window.UAPlay && isAdmin()) UAPlay.start($("#playDeck").value, $("#playDeckB").value, $("#playAI").checked); }); // 測試中：只給管理端
+    $("#btnPlay").addEventListener("click", () => { if (window.UAPlay) UAPlay.start($("#playDeck").value, $("#playDeckB").value, $("#playAI").checked); });
     $("#playDeck").addEventListener("change", renderPlayPanel);
     $("#playDeckB").addEventListener("change", renderPlayPanel);
     $("#handClose").addEventListener("click", () => closeHand());
