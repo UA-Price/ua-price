@@ -90,6 +90,7 @@
     if (short.length) return toast(`${short.map(who).join("、")}的主卡組不到 15 張，沒辦法開始`);
     S = { stage: "first", players: [A, B], deckIds: [deckA, deckB], ai: [false, !!aiB], first: 0, cur: 0, mullIdx: 0, phase: 0, over: "", log: [] };
     undoStack = [];
+    REVQ.length = 0;
     show();
     render();
     const odd = [A, B].filter((P) => P.total !== 50);
@@ -313,7 +314,100 @@
   }
 
   // ---------- 選目標 ----------
-  function pickCards(title, uids, n, upTo, onPick, rule = null, note = "") {
+  // 效果裡的檢索條件：〈卡名〉、[特徴：X]／《X》（兩種以上用「か」連接＝其中一種就行）、顏色、卡片種類、必要エナジー、BP
+  function specOf(raw) {
+    const s = String(raw || "");
+    const names = [...s.matchAll(/〈([^〉]+)〉/g)].map((x) => x[1].replace(/\s+/g, ""));
+    const traits = [...s.matchAll(/\[?特徴[:：]\s*([^\]、》]+)\]?/g), ...s.matchAll(/《([^》]+)》/g)].map((x) => x[1].trim());
+    const col = (s.match(/(赤|青|黄|緑|紫)の/) || [])[1];
+    const type = /イベント/.test(s) ? "イベント" : /フィールド/.test(s) ? "フィールド" : /キャラ/.test(s) ? "キャラ" : "";
+    const enMax = (s.match(/必要エナジー(?:が)?(\d+)以下/) || [])[1], enMin = (s.match(/必要エナジー(?:が)?(\d+)以上/) || [])[1];
+    const bpMax = (s.match(/BP(\d+)以下/) || [])[1];
+    const ok = (u) => {
+      const c = card(u);
+      if (!c) return false;
+      if (names.length || traits.length) {
+        const nm = String(c.name || "").replace(/\s+/g, ""), tr = String(c.traits || "");
+        if (!names.some((x) => nm.includes(x)) && !traits.some((x) => tr.includes(x))) return false;
+      }
+      if (col && c.color !== col) return false;
+      if (type && !String(c.type || "").includes(type)) return false;
+      if (enMax && (c.energy || 0) > +enMax) return false;
+      if (enMin && (c.energy || 0) < +enMin) return false;
+      if (bpMax && (c.bp || 0) > +bpMax) return false;
+      return true;
+    };
+    const parts = [...names.map((x) => `〈${x}〉`), ...traits.map((x) => `特徵「${x}」`)];
+    const label = [
+      col ? (COLOR_ZH[col] || col) + "色" : "",
+      enMax ? `必要エナジー ${enMax} 以下` : enMin ? `必要エナジー ${enMin} 以上` : "",
+      bpMax ? `BP${bpMax} 以下` : "",
+      parts.length ? parts.join("或") : "",
+      type === "イベント" ? "事件卡" : type === "フィールド" ? "場域卡" : type === "キャラ" ? "角色卡" : parts.length ? "" : "卡",
+    ].filter(Boolean).join(" ") || "卡";
+    return { ok, label };
+  }
+  // 公開的卡給大家看（電腦公開時特別跳出來，看完按「知道了」它才繼續）
+  const REVQ = [];
+  function revealShow(P, list, why) {
+    if (!isAI(P.idx)) return; // 自己操作的那邊本來就看得到
+    REVQ.push({ P, list: list.slice(), why });
+    if (REVQ.length === 1) drawReveal();
+  }
+  function drawReveal() {
+    const r = REVQ[0];
+    if (!r) return;
+    const box = $("#pySheet");
+    box.textContent = "";
+    box.append(el("div", { class: "py-sh-head" }, el("div", {}, el("b", { text: `${who(r.P)}公開了 ${r.list.length} 張` }), el("p", { text: `${r.why}：${r.list.map(nameOf).join("、")}・點卡片可以放大` }))));
+    const grid = el("ul", { class: "py-pile" });
+    r.list.forEach((u) => grid.append(cardEl(u, { bp: true, onclick: () => { const x = UA.officialList(card(u))[0]; if (x) UA.openZoom(x, nameOf(u)); } })));
+    box.append(grid);
+    // 5 秒沒動作就自動關掉繼續；有點卡片（想放大看）就停止倒數，等你按「知道了」
+    const btn = el("button", { type: "button", class: "py-sh-btn", onclick: closeSheet }, "知道了（5）");
+    box.append(el("div", { class: "py-sh-list row" }, btn));
+    $("#pySheetWrap").hidden = false;
+    let left = 5;
+    clearInterval(revTimer);
+    revTimer = setInterval(() => {
+      if (REVQ[0] !== r) return clearInterval(revTimer);
+      left--;
+      if (left <= 0) { clearInterval(revTimer); closeSheet(); } else btn.textContent = `知道了（${left}）`;
+    }, 1000);
+    grid.addEventListener("pointerdown", () => { clearInterval(revTimer); btn.textContent = "知道了"; }, { once: true });
+  }
+  let revTimer = null;
+  // 手牌丟 N 張到場外（電腦挑 BP 最低的）
+  function discardHand(P, n, done) {
+    const pick = (list) => { snap(); list.forEach((u) => toPile(u, "outside")); log(`${who(P)}：手牌 ${list.length} 張放到場外（${list.map(nameOf).join("、")}）`); done(); };
+    if (!P.hand.length) return done();
+    if (isAI(P.idx)) return pick(P.hand.slice().sort((a, b) => (card(a).bp || 0) - (card(b).bp || 0)).slice(0, n));
+    pickCards(`${who(P)}：選手牌 ${n} 張放到場外`, P.hand.slice(), n, false, pick);
+  }
+  // 照自己想要的順序排卡：依序點卡片＝第 1、2、3…張
+  function orderCards(P, list, restTo, onDone) {
+    const ord = [];
+    const box = $("#pySheet");
+    const top = restTo === "top", bottom = restTo === "bottom";
+    const draw = () => {
+      box.textContent = "";
+      box.append(el("div", { class: "py-sh-head" }, el("div", {}, el("b", { text: `排順序（${list.length} 張）` }),
+        el("p", { text: `依序點卡片：第 1 張會在${top ? "牌庫最上面" : bottom ? "這幾張的最上面（放到牌庫下面時）" : "最上面"}。點錯可以再點一次取消。` }))));
+      const grid = el("ul", { class: "py-pile" });
+      list.forEach((u) => {
+        const k = ord.indexOf(u);
+        grid.append(cardEl(u, { badge: k >= 0 ? `第 ${k + 1}` : "", cls: k >= 0 ? "picked" : "", onclick: () => { if (k >= 0) ord.splice(k, 1); else ord.push(u); draw(); } }));
+      });
+      box.append(grid);
+      const rest = () => ord.concat(list.filter((u) => !ord.includes(u)));
+      box.append(el("div", { class: "py-sh-list row" },
+        el("button", { type: "button", class: "py-sh-btn cancel", onclick: () => { ord.length = 0; draw(); } }, "重排"),
+        el("button", { type: "button", class: "py-sh-btn", onclick: () => { closeSheet(); onDone(rest()); } }, ord.length === list.length ? "確定" : "確定（沒點的照原順序接在後面）")));
+    };
+    draw();
+    $("#pySheetWrap").hidden = false;
+  }
+  function pickCards(title, uids, n, upTo, onPick, rule = null, note = "", zeroOk = false) {
     if (AUTO_PICK) { // 電腦對手：自動選
       if (!uids.length) return;
       const list = AUTO_PICK(uids, n, upTo, rule);
@@ -344,7 +438,7 @@
       box.append(grid);
       box.append(el("div", { class: "py-sh-list row" },
         el("button", { type: "button", class: "py-sh-btn cancel", onclick: closeSheet }, "取消"),
-        el("button", { type: "button", class: "py-sh-btn", disabled: upTo ? sel.length === 0 : sel.length !== Math.min(n, uids.length), onclick: () => { closeSheet(); onPick(sel.slice()); } }, `確定（${sel.length}）`)));
+        el("button", { type: "button", class: "py-sh-btn", disabled: upTo ? !zeroOk && sel.length === 0 : sel.length !== Math.min(n, uids.length), onclick: () => { closeSheet(); onPick(sel.slice()); } }, `確定（${sel.length}）`)));
     };
     draw();
     $("#pySheetWrap").hidden = false;
@@ -409,7 +503,82 @@
   function actionsFor(text, P, srcUid) {
     const acts = [];
     const opp = S.players[1 - P.idx];
-    const t = String(text).replace(/［[^］]*］/g, "");
+    let t = String(text).replace(/［特徴[:：]\s*([^］]+)］/g, "《$1》").replace(/［[^］]*］/g, "");
+    // 看牌庫上面 N 張 → 選符合條件的卡（加入手牌／放到場外，可能要公開）→ 剩下的照自己想要的順序放回 →（加入的話）手牌丟 N 張
+    let lm = t.match(/(?:自分の)?山札の上から(\d+)枚(?:を)?見(?:る|て)?[。、]?(?:その中から)?(.*?)を(\d+)枚(まで)?(?:選び、?)?(公開し)?(手札に加え|場外に置)(?:る|く)?。?(?:(?:残り|それ以外)(?:のカード)?を(.*?)置(?:く|き)。?)?(?:(?:カードを)?手札に加えた場合、自分の手札を(\d+)枚(?:選び、?)?場外に置(?:く)?。?)?/);
+    if (lm) {
+      const look = +lm[1], spec = specOf(lm[2]), k = +lm[3], upTo = !!lm[4], pub = !!lm[5], toOut = lm[6].startsWith("場外"), restTxt = lm[7] || "", disc = +(lm[8] || 0);
+      const anyOrder = /望む順|好きな順/.test(restTxt);
+      const restTo = /場外/.test(restTxt) ? "outside" : /上か下|上または下/.test(restTxt) ? "either" : /山札の上/.test(restTxt) ? "top" : "bottom";
+      const restZh = { outside: "放到場外", top: "放回牌庫上面", bottom: "放到牌庫下面", either: "放回牌庫上面或下面" }[restTo];
+      const destZh = toOut ? "放到場外" : `${pub ? "公開後" : ""}加入手牌`;
+      t = t.replace(lm[0], "");
+      acts.push({
+        ai: "good",
+        label: `看牌庫上面 ${look} 張，${spec.label}${upTo ? "最多" : ""} ${k} 張${destZh}，剩下的${anyOrder && restTo !== "outside" ? "照你想要的順序" : ""}${restZh}${disc ? `；有加入的話手牌 ${disc} 張放到場外` : ""}`,
+        run: (done) => {
+          const pool = P.deck.slice(0, look);
+          if (!pool.length) { toast("牌庫沒有卡"); return done(); }
+          const finish = (list) => {
+            snap();
+            for (const u of list) { P.deck.splice(P.deck.indexOf(u), 1); (toOut ? P.outside : P.hand).push(u); }
+            const rest = pool.filter((u) => !list.includes(u));
+            for (const u of rest) P.deck.splice(P.deck.indexOf(u), 1);
+            const what = list.length ? `「${list.map(nameOf).join("、")}」${destZh}` : "沒有選卡";
+            const after = () => {
+              if (list.length && (pub || toOut)) revealShow(P, list, `看牌庫上面 ${pool.length} 張，${destZh}`);
+              else if (!list.length && isAI(P.idx)) toast(`${who(P)}看了牌庫上面 ${pool.length} 張，沒有選卡`);
+              render();
+              if (list.length && disc && !toOut) discardHand(P, disc, done); else done();
+            };
+            const put = (order, where) => {
+              if (where === "outside") P.outside.push(...order);
+              else if (where === "top") P.deck.unshift(...order);
+              else P.deck.push(...order);
+              log(`${who(P)}：看牌庫上面 ${pool.length} 張，${what}，剩下 ${order.length} 張${{ outside: "放到場外", top: "放回牌庫上面", bottom: "放到牌庫下面" }[where]}`);
+              after();
+            };
+            const pickWhere = (order) => {
+              if (restTo !== "either") return put(order, restTo);
+              if (isAI(P.idx) || !order.length) return put(order, "bottom");
+              sheet("剩下的卡要放哪裡？", `${order.length} 張`, [
+                { label: "放回牌庫上面", run: () => put(order, "top") },
+                { label: "放到牌庫下面", run: () => put(order, "bottom") },
+              ]);
+            };
+            if (anyOrder && restTo !== "outside" && rest.length > 1 && !isAI(P.idx)) orderCards(P, rest, restTo, pickWhere);
+            else pickWhere(rest);
+          };
+          pickCards(`${who(P)}的牌庫上面 ${pool.length} 張（由上到下）`, pool, k, upTo, finish,
+            (sel, u) => (spec.ok(u) ? null : `這張不符合條件（要${spec.label}）`), `選要${destZh}的卡・條件：${spec.label}・不符合的點不了，可以一張都不選`, true);
+        },
+      });
+    }
+    // 從場外／牌庫找符合條件的卡加入手牌（例：自分の場外から〈X〉を1枚まで手札に加える）
+    lm = t.match(/自分の(場外|山札)から(.*?)を(\d+)枚(まで)?(?:選び、?)?(公開し)?手札に加え(?:る)?。?/);
+    if (lm && !/このキャラの下/.test(lm[2])) {
+      const fromDeck = lm[1] === "山札", spec = specOf(lm[2]), k = +lm[3], upTo = !!lm[4], pub = !!lm[5] || !fromDeck;
+      t = t.replace(lm[0], "");
+      acts.push({
+        ai: "good",
+        label: `從${fromDeck ? "牌庫" : "場外"}找${spec.label}${upTo ? "最多" : ""} ${k} 張加入手牌${fromDeck ? "（之後洗牌）" : ""}`,
+        run: (done) => {
+          const zone = fromDeck ? P.deck : P.outside;
+          const cands = zone.filter(spec.ok);
+          const finish = (list) => {
+            snap();
+            for (const u of list) { zone.splice(zone.indexOf(u), 1); P.hand.push(u); }
+            if (fromDeck) shuffle(P.deck);
+            log(`${who(P)}：從${fromDeck ? "牌庫" : "場外"}${list.length ? `把「${list.map(nameOf).join("、")}」加入手牌` : "沒有找到卡"}${fromDeck ? "，洗牌" : ""}`);
+            if (list.length && pub) revealShow(P, list, `從${fromDeck ? "牌庫" : "場外"}找到後加入手牌`);
+            else if (!list.length && isAI(P.idx)) toast(`${who(P)}沒有找到符合的卡`);
+            done();
+          };
+          if (!cands.length) { toast(`${fromDeck ? "牌庫" : "場外"}沒有${spec.label}`); return finish([]); }
+          pickCards(`從${fromDeck ? "牌庫" : "場外"}選${spec.label}`, cands, k, upTo, finish, null, "", true);
+        },
+      });
+    }
     for (const sen of t.split("。")) {
       let m;
       if ((m = sen.match(/カードを(\d+)枚引/))) {
@@ -510,6 +679,7 @@
               snap();
               for (const u of list) { f.s.under = f.s.under.filter((x) => x !== u); f.s.fd = (f.s.fd || []).filter((x) => x !== u); P.hand.push(u); }
               log(`${who(P)}：從「${nameOf(srcUid)}」下面拿 ${list.length} 張加入手牌（${list.map(nameOf).join("、")}）`);
+              if (list.length && /公開し/.test(sen)) revealShow(P, list, `從「${nameOf(srcUid)}」下面拿出來加入手牌`);
               done();
             });
           },
@@ -1051,7 +1221,12 @@
     box.append(ul);
     $("#pySheetWrap").hidden = false;
   }
-  function closeSheet() { const w = $("#pySheetWrap"); if (w) w.hidden = true; }
+  function closeSheet() {
+    const w = $("#pySheetWrap");
+    if (w) w.hidden = true;
+    clearInterval(revTimer);
+    if (REVQ.length) { REVQ.shift(); if (REVQ.length) drawReveal(); else aiPump(); }
+  }
   function pileView(zone, list, title, P) {
     const box = $("#pySheet");
     box.textContent = "";
@@ -1269,6 +1444,7 @@
   }
   function aiStep() {
     if (!S || S.over) return;
+    if (REVQ.length) return; // 等你看完電腦公開的卡
     // 1. 生命視窗：攻擊方是電腦 → 隨機挑生命卡翻開；翻完自動關
     if (LP) {
       const atkIdx = 1 - LP.P.idx;
@@ -1566,6 +1742,7 @@
   function close(fromHistory) {
     if (!open) return;
     open = false;
+    REVQ.length = 0;
     closeSheet();
     LP = null;
     AT = null;
