@@ -819,6 +819,19 @@ body.admin .viewer-only { display: none !important; }
   .py-side .py-pilebtn .py-pn { font-size: 15px; }
   .py-side-btns .btn.small { font-size: 11px; padding: 4px 2px; }
 }
+.py-opp { display: none; }
+@media (max-width: 900px) {
+  /* 手機：對手場地固定顯示在自己場地上面，資訊欄裡的縮圖就不用了 */
+  .py-opp { display: flex; flex-direction: column; gap: 4px; grid-column: 1 / -1; order: 2; padding: 8px; border-radius: 12px; background: rgba(10, 16, 50, .55); border: 1px solid var(--line); }
+  .py-opp.pA { border-top: 3px solid #5b9cf2; }
+  .py-opp.pB { border-top: 3px solid #f0a13c; }
+  .py-opp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .py-opp-head b { font-size: 14px; }
+  .py-opp .py-zone.mini { display: grid; grid-template-columns: 1.2em minmax(0, 1fr); align-items: center; gap: 6px; }
+  .py-opp .py-lbl { width: 1em; font-size: 12px; line-height: 1.25; word-break: break-all; text-align: center; }
+  .py-opp .py-mini { grid-template-columns: repeat(4, minmax(0, 58px)); justify-content: center; gap: 8px; }
+  .py-side .py-zone.mini { display: none !important; }
+}
 .py-more { display: none; margin-left: auto; padding: 2px 8px; border-radius: 99px; font-size: 11px; cursor: pointer; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2); }
 @media (max-width: 900px) {
   /* 手機：資訊欄預設收起，只留生命、牌庫、場外、移除區和 AP */
@@ -907,3 +920,7 @@ body.admin .viewer-only { display: none !important; }
 .play-ai input { width: 18px; height: 18px; accent-color: var(--accent); }
 .py-ai-tag { padding: 4px 10px; font-size: 12px; animation: pyPulse 1.2s ease-in-out infinite; }
 @keyframes pyPulse { 50% { opacity: .55; } }
+
+/* 對戰選單：主要選項、要小心的選項 */
+.py-sh-btn.primary { border-color: var(--neon-t); color: #fff; font-weight: 700; }
+.py-sh-btn.warn { color: #ff9a8a; border-color: rgba(255, 120, 100, .45); font-size: 13px; }

@@ -264,9 +264,11 @@
     const { g, unknown } = energyAvail(P);
     const have = (g[c.color] || 0) + (g.虹 || 0);
     if (have >= c.energy || unknown) return then(); // 能源線有卡沒有資料時不擋
-    sheet("能源不夠", `「${c.name}」需要${COLOR_ZH[c.color] || c.color}色能源 ${c.energy}，${who(P)}的能源線目前只有 ${have}。`, [
-      { label: "仍然使用（有效果讓它不需要能源時）", run: then },
-    ], c);
+    // 能源不夠：預設就是不登場；只有真的有效果減少能源時才強制登場，而且會寫進紀錄
+    sheet("能源不夠，不能登場", `「${c.name}」需要${COLOR_ZH[c.color] || c.color}色能源 ${c.energy}，${who(P)}的能源線目前只有 ${have}。`, [
+      { label: "好，不登場", cls: "primary", run: () => {} },
+      { label: "強制登場（只有效果讓必要能源減少時才用）", cls: "warn", run: () => { log(`${who(P)}：能源不夠（${have}／${c.energy}），強制使用「${c.name}」`); then(); } },
+    ], c, { noCancel: true });
   }
   const playFromHand = (uid, fn) => checkEnergy(uid, () => withAP(uid, fn));
 
@@ -1040,11 +1042,37 @@
       { label: "仍然使用（不扣 AP，例如有效果讓它免費）", run: () => run(0) },
     ]);
   }
+  // 突襲（レイド）：只有寫著［レイド］〈卡名〉的卡能突襲，而且只能疊到自己場上名字相符、本身沒有レイド的角色上
+  // 沒有效果資料的卡不擋（照你自己判斷）
+  function raidWant(uid) {
+    const c = card(uid);
+    const m = String(c.effect || "").match(/\[レイド\]〈([^〉]+)〉/);
+    if (m) return m[1].replace(/\s+/g, "");
+    return hasData(uid) ? false : null; // false = 沒有突襲；null = 沒資料
+  }
+  function raidOk(uid, target) {
+    const want = raidWant(uid);
+    if (want === null) return true;
+    if (want === false) return false;
+    const t = card(target);
+    return String(t.name || "").replace(/\s+/g, "").includes(want) && !/^\[レイド\]/.test(t.effect || "");
+  }
+  function raidWhyNot(uid, target) {
+    const want = raidWant(uid);
+    if (want === false) return `「${nameOf(uid)}」沒有突襲（レイド），不能疊到角色上`;
+    return `「${nameOf(uid)}」只能突襲到〈${(card(uid).effect.match(/\[レイド\]〈([^〉]+)〉/) || [])[1]}〉上${target ? `，「${nameOf(target)}」不行` : ""}`;
+  }
+  function energyText(P) {
+    const { g, unknown } = energyAvail(P);
+    const parts = Object.entries(g).filter(([, v]) => v).map(([k, v]) => `${k === "虹" ? "任意色" : COLOR_ZH[k] || k}${v}`);
+    return parts.length ? `能源 ${parts.join("・")}${unknown ? "（有卡沒資料）" : ""}` : unknown ? "能源（有卡沒資料）" : "能源 0";
+  }
   function raid(uid, free = false) {
     const P = PL(uid);
+    if (raidWant(uid) === false) return toast(raidWhyNot(uid));
     const targets = [];
-    for (const line of ["front", "energy"]) P[line].forEach((s, i) => { if (s) targets.push({ line, i, s }); });
-    if (!targets.length) return toast("場上沒有可以突襲的角色");
+    for (const line of ["front", "energy"]) P[line].forEach((s, i) => { if (s && raidOk(uid, s.uid)) targets.push({ line, i, s }); });
+    if (!targets.length) return toast(raidWant(uid) ? `場上沒有可以突襲的〈${card(uid).effect.match(/\[レイド\]〈([^〉]+)〉/)[1]}〉` : "場上沒有可以突襲的角色");
     sheet("突襲：選擇要重疊在哪張角色上", "突襲元卡的效果會無效；突襲後置為活動。", targets.map(({ line, i, s }) => ({
       label: `${LINE_NAME[line]}：${nameOf(s.uid)}`,
       run: () => raidOnto(uid, line, i, free),
@@ -1122,7 +1150,7 @@
         items.push(
           { label: "角色登場到前線（休息）", run: () => playFromHand(uid, (cost) => placeOnLine(uid, "front", { payCost: cost })) },
           { label: "登場到能源線（休息）", run: () => playFromHand(uid, (cost) => placeOnLine(uid, "energy", { payCost: cost })) },
-          { label: "突襲", run: () => raid(uid) },
+          raidWant(uid) !== false ? { label: "突襲", run: () => raid(uid) } : null,
           { label: "使用事件卡（用完放到場外）", run: () => useEvent(uid) },
         );
         toPiles([["放到場外", "outside"], ["放到移除區", "remove"], ["放回牌庫頂", "deck", "top"], ["放回牌庫底", "deck", "bottom"]]);
@@ -1202,7 +1230,7 @@
   }
 
   /* ---------- 選單（從下方滑出） ---------- */
-  function sheet(title, sub, items, c) {
+  function sheet(title, sub, items, c, opts = {}) {
     const box = $("#pySheet");
     box.textContent = "";
     const head = el("div", { class: "py-sh-head" });
@@ -1216,8 +1244,8 @@
       c.effect ? el("p", {}, el("b", { text: "效果　" }), ...fxNodes(c.effect)) : null,
       c.trigger ? el("p", {}, el("b", { text: "觸發　" }), ...fxNodes(c.trigger)) : null));
     const ul = el("div", { class: "py-sh-list" });
-    for (const it of items) ul.append(el("button", { type: "button", class: "py-sh-btn", onclick: () => { closeSheet(); it.run(); } }, it.label));
-    ul.append(el("button", { type: "button", class: "py-sh-btn cancel", onclick: closeSheet }, "取消"));
+    for (const it of items) if (it) ul.append(el("button", { type: "button", class: `py-sh-btn ${it.cls || ""}`, onclick: () => { closeSheet(); it.run(); } }, it.label));
+    if (!opts.noCancel) ul.append(el("button", { type: "button", class: "py-sh-btn cancel", onclick: closeSheet }, "取消"));
     box.append(ul);
     $("#pySheetWrap").hidden = false;
   }
@@ -1361,7 +1389,7 @@
     if (isLine(to)) {
       const target = slot >= 0 ? P[to][slot] : null;
       if (from === "hand") {
-        if (target) return raidOnto(uid, to, slot); // 拖到自己場上的角色上 = 突襲
+        if (target) return raidOk(uid, target.uid) ? raidOnto(uid, to, slot) : toast(raidWhyNot(uid, target.uid)); // 拖到自己場上的角色上 = 突襲
         return playFromHand(uid, (cost) => placeOnLine(uid, to, { payCost: cost, slot }));
       }
       if (isLine(from)) {
@@ -1610,7 +1638,7 @@
     if (S.over) root.append(el("div", { class: "py-over" }, S.over, el("button", { class: "btn small", type: "button", onclick: () => { snap(); S.over = ""; render(); } }, "知道了")));
 
     const layout = el("div", { class: "py-layout" });
-    layout.append(sidePanel(S.players[0]), mainArea(CUR()), sidePanel(S.players[1]));
+    layout.append(sidePanel(S.players[0]), oppArea(S.players[1 - S.cur]), mainArea(CUR()), sidePanel(S.players[1]));
     root.append(layout);
     aiPump();
     root.append(el("details", { class: "py-log" }, el("summary", { text: S.log[0] ? `紀錄：${S.log[0]}` : "紀錄" }),
@@ -1656,6 +1684,17 @@
     }
     return box;
   }
+  // 手機版：對手的場地（像真的對坐：能源線在上、前線靠近中間），電腦版用資訊欄裡的縮圖
+  function oppArea(Q) {
+    const box = el("section", { class: `py-opp p${PN[Q.idx]}` });
+    box.append(el("div", { class: "py-opp-head" }, el("b", { text: `${who(Q)}的場地` }), el("span", { class: "py-sub", text: `手牌 ${Q.hand.length} 張` })));
+    for (const line of ["energy", "front"]) {
+      const row = el("ul", { class: "py-mini" });
+      Q[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, badge: underBadge(s, true), onclick: () => cardMenu(s.uid, line), bp: true, mod: s.mod || 0 }) : el("li", { class: "py-slot" })));
+      box.append(el("div", { class: "py-zone mini" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
+    }
+    return box;
+  }
   function pileBtn(P, label, zone, cls) {
     const list = P[zone];
     return el("div", { class: `py-pilebox ${cls}`, "data-drop": zone === "life" ? null : zone, "data-owner": P.idx },
@@ -1684,7 +1723,7 @@
         if (!s) row.append(el("li", { class: "py-slot", "data-drop": line, "data-slot": i, "data-owner": P.idx }));
         else row.append(cardEl(s.uid, { rest: s.rest, badge: underBadge(s, false), onclick: () => cardMenu(s.uid, line), drag: line, drop: { zone: line, slot: i, owner: P.idx }, bp: true, mod: s.mod || 0 }));
       });
-      main.append(el("div", { class: "py-zone" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
+      main.append(el("div", { class: "py-zone" }, el("span", { class: "py-lbl", text: line === "energy" ? `能源線・${energyText(P)}` : LINE_NAME[line] }), row));
     }
     const hand = el("ul", { class: "py-hand" });
     if (isAI(P.idx)) P.hand.forEach((u) => hand.append(cardEl(u, { back: true }))); // 電腦的手牌不給看
