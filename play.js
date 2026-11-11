@@ -556,6 +556,66 @@
         },
       });
     }
+    // 看牌庫上面 N 張，每張自己選放哪裡（例：山札の上から1枚見て、山札の上か場外に置く／山札の上か下に置く）
+    lm = t.match(/(?:自分の)?山札の上から(\d+)枚(?:を)?見(?:る|て)[。、]?([^。]*?)に置く。?/);
+    if (lm) {
+      const where = lm[2];
+      const dests = [];
+      if (/上/.test(where.replace(/山札の上から/g, ""))) dests.push("top");
+      if (/下/.test(where)) dests.push("bottom");
+      if (/場外/.test(where)) dests.push("outside");
+      if (dests.length >= 2 || (dests.length === 1 && /望む順|好きな順/.test(where))) {
+        const look = +lm[1], anyOrder = /望む順|好きな順/.test(where) || look > 1;
+        const ZH = { top: "放回牌庫上面", bottom: "放到牌庫下面", outside: "放到場外" };
+        t = t.replace(lm[0], "");
+        acts.push({
+          ai: "good",
+          label: `看牌庫上面 ${look} 張，每張選擇${dests.map((d) => ZH[d]).join("或")}`,
+          run: (done) => {
+            const pool = P.deck.slice(0, look);
+            if (!pool.length) { toast("牌庫沒有卡"); return done(); }
+            const pick = { top: [], bottom: [], outside: [] };
+            const finish = () => {
+              snap();
+              for (const u of pool) P.deck.splice(P.deck.indexOf(u), 1);
+              const end = (topOrder, botOrder) => {
+                P.deck.unshift(...topOrder);
+                P.deck.push(...botOrder);
+                P.outside.push(...pick.outside);
+                const parts = [];
+                if (topOrder.length) parts.push(`${topOrder.length} 張放回上面`);
+                if (botOrder.length) parts.push(`${botOrder.length} 張放到下面`);
+                if (pick.outside.length) parts.push(`「${pick.outside.map(nameOf).join("、")}」放到場外`);
+                log(`${who(P)}：看牌庫上面 ${pool.length} 張，${parts.join("，")}`);
+                if (pick.outside.length && isAI(P.idx)) revealShow(P, pick.outside, "看牌庫上面後放到場外");
+                render();
+                done();
+              };
+              const human = !isAI(P.idx);
+              const doBottom = (topOrder) => human && anyOrder && pick.bottom.length > 1 ? orderCards(P, pick.bottom, "bottom", (b) => end(topOrder, b)) : end(topOrder, pick.bottom);
+              if (human && anyOrder && pick.top.length > 1) orderCards(P, pick.top, "top", doBottom); else doBottom(pick.top);
+            };
+            if (isAI(P.idx)) {
+              const { g } = energyAvail(P);
+              const have = Object.values(g).reduce((a, b) => a + b, 0);
+              for (const u of pool) {
+                const good = (card(u).energy || 0) <= have + 1;
+                const d = good && dests.includes("top") ? "top" : dests.includes("outside") ? "outside" : dests.includes("bottom") ? "bottom" : dests[0];
+                pick[d].push(u);
+              }
+              return finish();
+            }
+            let i = 0;
+            const ask = () => {
+              if (i >= pool.length) return finish();
+              const u = pool[i];
+              sheet(`看牌庫上面 ${pool.length} 張：第 ${i + 1} 張`, `「${nameOf(u)}」要放哪裡？`, dests.map((d) => ({ label: ZH[d], cls: d === "top" ? "primary" : "", run: () => { pick[d].push(u); i++; ask(); } })), card(u), { noCancel: true });
+            };
+            ask();
+          },
+        });
+      }
+    }
     // 從場外／牌庫找符合條件的卡加入手牌（例：自分の場外から〈X〉を1枚まで手札に加える）
     lm = t.match(/自分の(場外|山札)から(.*?)を(\d+)枚(まで)?(?:選び、?)?(公開し)?手札に加え(?:る)?。?/);
     if (lm && !/このキャラの下/.test(lm[2])) {
