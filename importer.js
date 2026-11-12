@@ -48,7 +48,7 @@
     timerWorker.postMessage({ id, ms });
   });
   const STAR = /[★☆]/g;
-  const KEY_RE = /([A-Z0-9]+)\/([A-Z0-9]+-\d+-(?:AP)?\d+)/;
+  const KEY_RE = /([A-Z0-9]+)\/([A-Z0-9]+-(?:\d+|P)-(?:AP)?\d+)/;
 
   /* ---------- 右下角的面板 ---------- */
   const box = document.createElement("div");
@@ -152,7 +152,7 @@
       const codeEl = li.querySelector(":scope > div");
       const code = codeEl ? codeEl.textContent.trim() : "";
       // 例：UA-UA57BT-STG-1-029-02 → UA57BT / STG-1-029
-      const m = code.match(/^UA-([A-Z0-9]+)-([A-Z0-9]+-\d+-(?:AP)?\d+)(?:-\d+)?$/);
+      const m = code.match(/^UA-([A-Z0-9]+)-([A-Z0-9]+-(?:\d+|P)-(?:AP)?\d+)(?:-\d+)?$/);
       if (!m) return; // 構築済デッキ等不是單卡
       const nameEl = li.querySelector(".list_product_Name_pc") || li.querySelector("figcaption");
       let name = nameEl ? nameEl.textContent.replace(/\s+/g, " ").trim() : "";
@@ -376,7 +376,7 @@
     const nums = new Set();
     doc.querySelectorAll("img").forEach((img) => {
       const src = img.getAttribute("data-src") || img.getAttribute("src") || "";
-      const m = src.match(/cardlist\/card\/([A-Z0-9]+)_([A-Z0-9]+-\d+-(?:AP)?\d+)(?:_p\d+)?\.png/);
+      const m = src.match(/cardlist\/card\/([A-Z0-9]+)_([A-Z0-9]+-(?:\d+|P)-(?:AP)?\d+)(?:_p\d+)?\.png/);
       if (m) nums.add(m[1] + "/" + m[2]);
     });
     return nums;
@@ -670,14 +670,14 @@
       // 順便記下每張卡的 BP（tag4），練習對戰自動比大小用
       const gk = String(c.globalKey || "").toUpperCase();
       const bpv = parseInt(c.tag4, 10);
-      if (/^[A-Z0-9]+-\d+-(AP)?\d+$/.test(gk) && bpv >= 0 && bpv < 100000) kppBP[gk] = bpv;
+      if (/^[A-Z0-9]+-(?:\d+|P)-(AP)?\d+$/.test(gk) && bpv >= 0 && bpv < 100000) kppBP[gk] = bpv;
       for (const r of c.rareList || []) {
         const rare = (r.rare || []).join("");
         const m = rare.match(KPP_RARE);
         const price = +r.lowestPrice || 0;
         if (!m || !(price > 0) || !r.packId || !r.packCardId) continue; // 0 = 目前沒人在賣
         const num = String(r.packId).toUpperCase() + "/" + String(r.packCardId).toUpperCase();
-        if (!/^[A-Z0-9]+\/[A-Z0-9]+-\d+-(AP)?\d+$/.test(num)) continue;
+        if (!/^[A-Z0-9]+\/[A-Z0-9]+-(?:\d+|P)-(AP)?\d+$/.test(num)) continue;
         all.push([num, m[2].length, c.nameJp || r.cardName || "", price, 99, "", rare, +r.averagePrice || 0]);
       }
     }

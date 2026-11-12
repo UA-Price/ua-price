@@ -125,12 +125,18 @@
   }
 
   /* ---------- 回合與階段 ---------- */
+  // 置為活動；有「次の1回アクティブにならない」的這次跳過
+  function untap(s, P) {
+    if (!s.rest) return;
+    if (s.skip) { s.skip -= 1; log(`${who(P)}：${nameOf(s.uid)} 這次不會置為活動（效果）`); return; }
+    s.rest = false;
+  }
   function startTurn() {
     const P = CUR();
     P.turn += 1;
     S.phase = 0;
     P.extraDrawn = false;
-    for (const line of ["front", "energy"]) for (const s of P[line]) if (s) s.rest = false;
+    for (const line of ["front", "energy"]) for (const s of P[line]) if (s) untap(s, P);
     const isFirst = P.idx === S.first;
     P.apCount = (isFirst ? AP_TABLE.first : AP_TABLE.second)[Math.min(P.turn, 3) - 1];
     P.ap = [false, false, false];
@@ -165,7 +171,7 @@
     if (S.phase < 4) {
       S.phase += 1;
       if (S.phase === 4) {
-        for (const line of ["front", "energy"]) for (const s of P[line]) if (s) s.rest = false;
+        for (const line of ["front", "energy"]) for (const s of P[line]) if (s) untap(s, P);
         log(`${who(P)}結束階段：場上休息的角色、場域置為活動`);
         if (P.hand.length > 8) toast(`手牌 ${P.hand.length} 張，超過 8 張：請把多的拖到移除區`, 4500);
       } else log(`${who(P)}進入${PHASES[S.phase]}階段`);
@@ -319,7 +325,9 @@
   // 效果裡的檢索條件：〈卡名〉、[特徴：X]／《X》（兩種以上用「か」連接＝其中一種就行）、顏色、卡片種類、必要エナジー、BP
   function specOf(raw) {
     const s = String(raw || "");
-    const names = [...s.matchAll(/〈([^〉]+)〉/g)].map((x) => x[1].replace(/\s+/g, ""));
+    const excl = [...s.matchAll(/〈([^〉]+)〉以外/g)].map((x) => x[1].replace(/\s+/g, ""));
+    const names = [...s.matchAll(/〈([^〉]+)〉(?!以外)/g)].map((x) => x[1].replace(/\s+/g, ""));
+    const apEq = (s.match(/消費AP(?:が)?(\d+)(?!以)/) || [])[1];
     const traits = [...s.matchAll(/\[?特徴[:：]\s*([^\]、》]+)\]?/g), ...s.matchAll(/《([^》]+)》/g)].map((x) => x[1].trim());
     const col = (s.match(/(赤|青|黄|緑|紫)の/) || [])[1];
     const type = /イベント/.test(s) ? "イベント" : /フィールド/.test(s) ? "フィールド" : /キャラ/.test(s) ? "キャラ" : "";
@@ -328,6 +336,8 @@
     const ok = (u) => {
       const c = card(u);
       if (!c) return false;
+      if (excl.some((x) => String(c.name || "").replace(/\s+/g, "").includes(x))) return false;
+      if (apEq && Number.isInteger(c.ap) && c.ap !== +apEq) return false;
       if (names.length || traits.length) {
         const nm = String(c.name || "").replace(/\s+/g, ""), tr = String(c.traits || "");
         if (!names.some((x) => nm.includes(x)) && !traits.some((x) => tr.includes(x))) return false;
@@ -343,10 +353,11 @@
     const label = [
       col ? (COLOR_ZH[col] || col) + "色" : "",
       enMax ? `必要エナジー ${enMax} 以下` : enMin ? `必要エナジー ${enMin} 以上` : "",
+      apEq ? `消費 AP ${apEq}` : "",
       bpMax ? `BP${bpMax} 以下` : "",
       parts.length ? parts.join("或") : "",
       type === "イベント" ? "事件卡" : type === "フィールド" ? "場域卡" : type === "キャラ" ? "角色卡" : parts.length ? "" : "卡",
-    ].filter(Boolean).join(" ") || "卡";
+    ].filter(Boolean).join(" ") + (excl.length ? `（${excl.map((x) => `〈${x}〉`).join("、")}除外）` : "") || "卡";
     return { ok, label };
   }
   // 公開的卡給大家看（電腦公開時特別跳出來，看完按「知道了」它才繼續）
@@ -505,7 +516,10 @@
   function actionsFor(text, P, srcUid) {
     const acts = [];
     const opp = S.players[1 - P.idx];
-    let t = String(text).replace(/［特徴[:：]\s*([^］]+)］/g, "《$1》").replace(/［[^］]*］/g, "");
+    let t = String(text).replace(/［特徴[:：]\s*([^］]+)］/g, "《$1》").replace(/［[^］]*］/g, "").replace(/。(それ|そのキャラ)は、?次の1回アクティブにならない/g, "、$1は次の1回アクティブにならない");
+    const t0 = t;
+    let curPos = 0;
+    { const push0 = acts.push.bind(acts); acts.push = (x) => push0(Object.assign(x, { pos: x.pos ?? curPos })); }
     // 看牌庫上面 N 張 → 選符合條件的卡（加入手牌／放到場外，可能要公開）→ 剩下的照自己想要的順序放回 →（加入的話）手牌丟 N 張
     let lm = t.match(/(?:自分の)?山札の上から(\d+)枚(?:を)?見(?:る|て)?[。、]?(?:その中から)?(.*?)を(\d+)枚(まで)?(?:選び、?)?(公開し)?(手札に加え|場外に置)(?:る|く)?。?(?:(?:残り|それ以外)(?:のカード)?を(.*?)置(?:く|き)。?)?(?:(?:カードを)?手札に加えた場合、自分の手札を(\d+)枚(?:選び、?)?場外に置(?:く)?。?)?/);
     if (lm) {
@@ -514,7 +528,7 @@
       const restTo = /場外/.test(restTxt) ? "outside" : /上か下|上または下/.test(restTxt) ? "either" : /山札の上/.test(restTxt) ? "top" : "bottom";
       const restZh = { outside: "放到場外", top: "放回牌庫上面", bottom: "放到牌庫下面", either: "放回牌庫上面或下面" }[restTo];
       const destZh = toOut ? "放到場外" : `${pub ? "公開後" : ""}加入手牌`;
-      t = t.replace(lm[0], "");
+      t = t.replace(lm[0], ""); curPos = t0.indexOf(lm[0]);
       acts.push({
         ai: "good",
         label: `看牌庫上面 ${look} 張，${spec.label}${upTo ? "最多" : ""} ${k} 張${destZh}，剩下的${anyOrder && restTo !== "outside" ? "照你想要的順序" : ""}${restZh}${disc ? `；有加入的話手牌 ${disc} 張放到場外` : ""}`,
@@ -556,6 +570,69 @@
         },
       });
     }
+    // 「手札を N 枚リムーブエリア／場外に置いてもよい。そうした場合、…」：先付代價，付了才做後面的效果
+    lm = t.match(/(?:その後、)?自分の手札を(\d+)枚(リムーブエリア|場外)に置いてもよい。そうした場合、([^。]*。?)/);
+    if (lm) {
+      const n = +lm[1], zoneKey = lm[2] === "場外" ? "outside" : "remove", zoneZh = lm[2] === "場外" ? "場外" : "移除區";
+      const thenText = lm[3];
+      t = t.replace(lm[0], ""); curPos = t0.indexOf(lm[0]);
+      const sub = actionsFor(thenText, P, srcUid);
+      const subZh = sub.map((a) => a.label).join("；") || "後面的效果";
+      acts.push({
+        ai: sub.length && sub.every((a) => a.ai === "good") ? "good" : "ui",
+        label: `（可以不做）手牌 ${n} 張放到${zoneZh}，然後：${subZh}`,
+        run: (done) => {
+          if (P.hand.length < n) { toast("手牌不夠"); return done(); }
+          const after = (list) => {
+            if (!list.length) return done();
+            snap();
+            list.forEach((u) => toPile(u, zoneKey));
+            log(`${who(P)}：手牌「${list.map(nameOf).join("、")}」放到${zoneZh}`);
+            render();
+            let i = 0;
+            const next = () => { if (i >= sub.length) return done(); const a = sub[i++]; a.run(next); };
+            next();
+          };
+          if (isAI(P.idx)) {
+            if (sub.some((a) => a.aiWorth && !a.aiWorth())) return done(); // 沒有可以拿的目標就不付代價
+            return after(P.hand.slice().sort((a, b) => (card(a).bp || 0) - (card(b).bp || 0)).slice(0, n));
+          }
+          pickCards(`選手牌 ${n} 張放到${zoneKey === "remove" ? "移除區" : "場外"}（付了才會${subZh}）`, P.hand.slice(), n, false, after);
+        },
+      });
+    }
+    // 從移除區／場外／手牌／牌庫把符合條件的角色登場（例：リムーブエリアから…を1枚まで自分の場にレストで登場させる）
+    lm = t.match(/自分の(リムーブエリア|場外|手札|山札)から(.*?)を(\d+)枚(まで)?(?:選び、?)?自分の場に(レストで|アクティブで)?登場させ(?:る)?。?/);
+    if (lm) {
+      const zk = { リムーブエリア: "remove", 場外: "outside", 手札: "hand", 山札: "deck" }[lm[1]], zz = { remove: "移除區", outside: "場外", hand: "手牌", deck: "牌庫" }[zk];
+      const spec = specOf(lm[2]), k = +lm[3], upTo = !!lm[4], rest = lm[5] !== "アクティブで";
+      t = t.replace(lm[0], ""); curPos = t0.indexOf(lm[0]);
+      const cands = () => P[zk].filter((u) => spec.ok(u) && !/イベント/.test(card(u).type || ""));
+      acts.push({
+        ai: "good",
+        aiWorth: () => cands().length > 0,
+        label: `從${zz}選${spec.label}${upTo ? "最多" : ""} ${k} 張登場到場上（${rest ? "休息" : "活動"}，不用付費）`,
+        run: (done) => {
+          const list0 = cands();
+          if (!list0.length) { toast(`${zz}沒有${spec.label}`); return done(); }
+          pickCards(`從${zz}選要登場的卡（${spec.label}）`, list0, k, upTo, (list) => {
+            let i = 0;
+            const next = () => {
+              if (i >= list.length) { if (zk === "deck") shuffle(P.deck); return done(); }
+              const u = list[i++];
+              if (isAI(P.idx) && list.length) revealShow(P, [u], `從${zz}登場`);
+              const go = (line) => { placeOnLine(u, line, { rest, why: `從${zz}登場` }); next(); };
+              if (isAI(P.idx)) return go(freeSlot(P, "front") >= 0 ? "front" : "energy");
+              sheet(`「${nameOf(u)}」要登場到哪裡？`, `${rest ? "休息" : "活動"}狀態登場`, [
+                { label: "前線", cls: "primary", run: () => go("front") },
+                { label: "能源線", run: () => go("energy") },
+              ], card(u), { noCancel: true });
+            };
+            next();
+          }, null, "", true);
+        },
+      });
+    }
     // 看牌庫上面 N 張，每張自己選放哪裡（例：山札の上から1枚見て、山札の上か場外に置く／山札の上か下に置く）
     lm = t.match(/(?:自分の)?山札の上から(\d+)枚(?:を)?見(?:る|て)[。、]?([^。]*?)に置く。?/);
     if (lm) {
@@ -567,7 +644,7 @@
       if (dests.length >= 2 || (dests.length === 1 && /望む順|好きな順/.test(where))) {
         const look = +lm[1], anyOrder = /望む順|好きな順/.test(where) || look > 1;
         const ZH = { top: "放回牌庫上面", bottom: "放到牌庫下面", outside: "放到場外" };
-        t = t.replace(lm[0], "");
+        t = t.replace(lm[0], ""); curPos = t0.indexOf(lm[0]);
         acts.push({
           ai: "good",
           label: `看牌庫上面 ${look} 張，每張選擇${dests.map((d) => ZH[d]).join("或")}`,
@@ -620,7 +697,7 @@
     lm = t.match(/自分の(場外|山札)から(.*?)を(\d+)枚(まで)?(?:選び、?)?(公開し)?手札に加え(?:る)?。?/);
     if (lm && !/このキャラの下/.test(lm[2])) {
       const fromDeck = lm[1] === "山札", spec = specOf(lm[2]), k = +lm[3], upTo = !!lm[4], pub = !!lm[5] || !fromDeck;
-      t = t.replace(lm[0], "");
+      t = t.replace(lm[0], ""); curPos = t0.indexOf(lm[0]);
       acts.push({
         ai: "good",
         label: `從${fromDeck ? "牌庫" : "場外"}找${spec.label}${upTo ? "最多" : ""} ${k} 張加入手牌${fromDeck ? "（之後洗牌）" : ""}`,
@@ -642,39 +719,55 @@
       });
     }
     for (const sen of t.split("。")) {
+      curPos = sen ? t0.indexOf(sen) : curPos;
       let m;
       if ((m = sen.match(/カードを(\d+)枚引/))) {
         const n = +m[1];
         acts.push({ ai: "good", label: `${who(P)}抽 ${n} 張`, run: (done) => { snap(); let k = 0; for (; k < n && P.deck.length; k++) P.hand.push(P.deck.shift()); log(`${who(P)}抽 ${k} 張（效果）`); done(); } });
       }
+      if (/このキャラは、?次の1回アクティブにならない/.test(sen) && srcUid) {
+        acts.push({ ai: "good", label: "這張角色下一次不會置為活動", run: (done) => { const f = slotOf(srcUid); if (f) { f.s.skip = 1; log(`${who(P)}：${nameOf(srcUid)} 下一次不會置為活動`); render(); } done(); } });
+      }
       if (/このカードを手札に加え/.test(sen) && srcUid) {
         acts.push({ ai: "good", label: "這張卡加入手牌", run: (done) => { snap(); toPile(srcUid, "hand"); log(`${who(P)}：${nameOf(srcUid)} 加入手牌（效果）`); done(); } });
       }
       // 選角色＋動作
-      if ((m = sen.match(/(相手|自分)の(フロントL|エナジーL|場)?の?([^、]*?)キャラ(?:カード)?を(\d+)枚(まで)?選び、?(.*)$/))) {
+      if ((m = sen.match(/(相手|自分)の(フロントL|エナジーL|場)?の?((?:(?!相手の|自分の)[^、])*?)キャラ(?:カード)?を(\d+)枚(まで)?選び、?(.*)$/))) {
         const side = m[1] === "相手" ? opp : P;
         const zone = m[2] === "フロントL" ? "front" : m[2] === "エナジーL" ? "energy" : "both";
         const cond = m[3] || "", n = +m[4], upTo = !!m[5], rest = m[6] || "";
-        const bpMax = (cond.match(/BP(\d+)以下/) || [])[1], bpMin = (cond.match(/BP(\d+)以上/) || [])[1];
+        let bpMax = (cond.match(/BP(\d+)以下/) || [])[1];
+        const bpMin = (cond.match(/BP(\d+)以上/) || [])[1];
+        // 「自分の場外にあるイベントカードの枚數×1000以下のBP」這種：用當下張數算
+        const cm = sen.match(/自分の(場外|手札|リムーブエリア|エナジーL|フロントL|場)にある(イベント|キャラ)?カードの枚数×(\d+)以下のBP/);
+        const dynMax = cm ? () => {
+          const zk = { 場外: "outside", 手札: "hand", リムーブエリア: "remove" }[cm[1]];
+          const pool = zk ? P[zk] : fieldUids(P, cm[1] === "エナジーL" ? "energy" : cm[1] === "フロントL" ? "front" : "both");
+          return pool.filter((u) => !cm[2] || String(card(u).type || "").includes(cm[2])).length * +cm[3];
+        } : null;
+        const dynZh = cm ? `自己${{ 場外: "場外", 手札: "手牌", リムーブエリア: "移除區", エナジーL: "能源線", フロントL: "前線", 場: "場上" }[cm[1]]}的${cm[2] === "イベント" ? "事件卡" : cm[2] === "キャラ" ? "角色卡" : "卡"}張數×${cm[3]}` : "";
         const verbs = [];
         if (/退場させ/.test(rest)) verbs.push(["retire", "退場"]);
         if (/手札に戻/.test(rest)) verbs.push(["hand", "回到手牌"]);
         if (/レストに/.test(rest)) verbs.push(["rest", "轉為休息"]);
-        if (/アクティブに/.test(rest)) verbs.push(["active", "置為活動"]);
+        if (/アクティブにす|アクティブにし/.test(rest)) verbs.push(["active", "置為活動"]);
+        if (/アクティブにならない/.test(rest)) verbs.push(["skip", "下一次不會置為活動"]);
         if (/場外に置/.test(rest) && !/退場/.test(rest)) verbs.push(["outside", "放到場外"]);
         if (/リムーブエリア|除外/.test(rest)) verbs.push(["remove", "放到移除區"]);
         const bpm = rest.match(/BP([+\-−])(\d+)/);
         if (bpm) verbs.push(["bp", `BP${bpm[1] === "+" ? "+" : "−"}${bpm[2]}`, (bpm[1] === "+" ? 1 : -1) * +bpm[2]]);
         if (verbs.length) {
           const zn = zone === "front" ? "前線" : zone === "energy" ? "能源線" : "場上";
-          const filt = bpMax ? `BP${bpMax}以下` : bpMin ? `BP${bpMin}以上` : "";
-          const harm = verbs.some((v) => ["retire", "hand", "rest", "outside", "remove"].includes(v[0]) || (v[0] === "bp" && v[2] < 0));
+          const filt = dynMax ? `BP（${dynZh}）以下` : bpMax ? `BP${bpMax}以下` : bpMin ? `BP${bpMin}以上` : "";
+          const harm = verbs.some((v) => ["retire", "hand", "rest", "outside", "remove", "skip"].includes(v[0]) || (v[0] === "bp" && v[2] < 0));
           const help = verbs.some((v) => v[0] === "active" || (v[0] === "bp" && v[2] > 0));
           acts.push({
             ai: side === P ? (help && !harm ? "good" : "bad") : (harm ? "good" : "bad"),
             label: `選${side === P ? "自己" : "對手"}${zn}${filt}的角色${upTo ? "最多" : ""} ${n} 張 → ${verbs.map((v) => v[1]).join("、")}`,
             run: (done) => {
-              const cands = fieldUids(side, zone).filter((u) => { const b = bpNow(u); return !(bpMax && b != null && b > +bpMax) && !(bpMin && b != null && b < +bpMin); });
+              if (dynMax) bpMax = dynMax();
+              const cands = fieldUids(side, zone).filter((u) => { const b = bpNow(u); return !(bpMax != null && b != null && b > +bpMax) && !(bpMin && b != null && b < +bpMin); });
+              if (dynMax) log(`${who(P)}：${dynZh} = ${bpMax}，可以選 BP${bpMax} 以下的角色`);
               pickCards(`選擇目標（${who(side)}）`, cands, n, upTo, (list) => {
                 snap();
                 for (const u of list) for (const [v, , d] of verbs) {
@@ -683,7 +776,9 @@
                   else if (v === "hand") { toPile(u, "hand"); log(`${who(side)}：${nameOf(u)} 回到手牌（效果）`); }
                   else if (v === "outside") { toPile(u, "outside"); log(`${who(side)}：${nameOf(u)} 放到場外（效果）`); }
                   else if (v === "remove") { toPile(u, "remove"); log(`${who(side)}：${nameOf(u)} 放到移除區（效果）`); }
-                  else if (v === "rest" || v === "active") { const f = slotOf(u); f.s.rest = v === "rest"; log(`${who(side)}：${nameOf(u)} ${v === "rest" ? "轉為休息" : "置為活動"}（效果）`); }
+                  else if (v === "rest") { const f = slotOf(u); f.s.rest = true; log(`${who(side)}：${nameOf(u)} 轉為休息（效果）`); }
+                  else if (v === "active") { const f = slotOf(u); if (f.s.skip && f.s.rest) untap(f.s, side); else f.s.rest = false; log(`${who(side)}：${nameOf(u)} 置為活動（效果）`); }
+                  else if (v === "skip") { const f = slotOf(u); f.s.skip = 1; log(`${who(side)}：${nameOf(u)} 下一次不會置為活動`); }
                   else if (v === "bp") addBP(u, d, "效果");
                 }
                 done();
@@ -768,6 +863,7 @@
         acts.push({ ai: "good", label: `對手受到 ${n} 傷害`, run: (done) => { done(); takeDamage(opp, n, srcUid); } });
       }
     }
+    acts.sort((x, y) => x.pos - y.pos);
     return acts;
   }
 
@@ -1738,7 +1834,7 @@
     if (!active) {
       for (const line of ["front", "energy"]) {
         const row = el("ul", { class: "py-mini" });
-        P[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, badge: underBadge(s, true), onclick: () => cardMenu(s.uid, line), bp: true, mod: s.mod || 0 }) : el("li", { class: "py-slot" })));
+        P[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, cls: s.skip ? "noup" : "", badge: underBadge(s, true), onclick: () => cardMenu(s.uid, line), bp: true, mod: s.mod || 0 }) : el("li", { class: "py-slot" })));
         box.append(el("div", { class: "py-zone mini" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
       }
     }
@@ -1750,7 +1846,7 @@
     box.append(el("div", { class: "py-opp-head" }, el("b", { text: `${who(Q)}的場地` }), el("span", { class: "py-sub", text: `手牌 ${Q.hand.length} 張` })));
     for (const line of ["energy", "front"]) {
       const row = el("ul", { class: "py-mini" });
-      Q[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, badge: underBadge(s, true), onclick: () => cardMenu(s.uid, line), bp: true, mod: s.mod || 0 }) : el("li", { class: "py-slot" })));
+      Q[line].forEach((s) => row.append(s ? cardEl(s.uid, { rest: s.rest, cls: s.skip ? "noup" : "", badge: underBadge(s, true), onclick: () => cardMenu(s.uid, line), bp: true, mod: s.mod || 0 }) : el("li", { class: "py-slot" })));
       box.append(el("div", { class: "py-zone mini" }, el("span", { class: "py-lbl", text: LINE_NAME[line] }), row));
     }
     return box;
@@ -1781,7 +1877,7 @@
       const row = el("ul", { class: `py-line ${line}`, "data-drop": line, "data-owner": P.idx });
       P[line].forEach((s, i) => {
         if (!s) row.append(el("li", { class: "py-slot", "data-drop": line, "data-slot": i, "data-owner": P.idx }));
-        else row.append(cardEl(s.uid, { rest: s.rest, badge: underBadge(s, false), onclick: () => cardMenu(s.uid, line), drag: line, drop: { zone: line, slot: i, owner: P.idx }, bp: true, mod: s.mod || 0 }));
+        else row.append(cardEl(s.uid, { rest: s.rest, cls: s.skip ? "noup" : "", badge: underBadge(s, false), onclick: () => cardMenu(s.uid, line), drag: line, drop: { zone: line, slot: i, owner: P.idx }, bp: true, mod: s.mod || 0 }));
       });
       main.append(el("div", { class: "py-zone" }, el("span", { class: "py-lbl", text: line === "energy" ? `能源線・${energyText(P)}` : LINE_NAME[line] }), row));
     }

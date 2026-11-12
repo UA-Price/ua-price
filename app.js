@@ -78,7 +78,7 @@
      官方的平行卡依序編成 _p1、_p2…，跟星星數不一定一致（例如 ★、★★★ 兩種平行卡會是 _p1、_p2），
      所以先看「同一張卡總共有哪幾種星數」，用排第幾個來對應；對不到時再往下找，最後才用遊々亭的小圖。 */
   const OFFICIAL_IMG = "https://www.unionarena-tcg.com/jp/images/cardlist/card/";
-  const NUM_RE = /^[A-Z0-9]+\/[A-Z0-9]+-\d+-(AP)?\d+$/;
+  const NUM_RE = /^[A-Z0-9]+\/[A-Z0-9]+-(?:\d+|P)-(AP)?\d+$/;
   let VARIANTS = new Map(); // 卡號 → 這張卡有哪些星數（由小到大）
   function officialList(c) {
     if (!NUM_RE.test(c.num)) return [];
@@ -499,8 +499,14 @@
         },
       }, c.label));
     }
+    // 該系列的 AP 卡（AP 卡沒有顏色，卡號是 -AP01 這種）
+    box.append(el("button", {
+      class: "cc cc-ap" + (selectedColors.has("AP") ? " on" : ""), type: "button",
+      "aria-pressed": selectedColors.has("AP") ? "true" : "false", title: "只看 AP 卡（可以和顏色一起選）",
+      onclick: () => { selectedColors.has("AP") ? selectedColors.delete("AP") : selectedColors.add("AP"); renderColorChips(); runSearch(); },
+    }, "AP"));
     if (!has) box.append(el("span", { class: "cc-hint", text: isAdmin() ? "（要先到「匯入・設定」匯入卡片顏色）" : "（還沒有顏色資料）" }));
-    else if (selectedColors.size) box.append(el("button", { class: "cc-clear", type: "button", onclick: () => { selectedColors.clear(); renderColorChips(); runSearch(); } }, "清除"));
+    if (selectedColors.size) box.append(el("button", { class: "cc-clear", type: "button", onclick: () => { selectedColors.clear(); renderColorChips(); runSearch(); } }, "清除"));
   }
   const selectedEnergy = new Set(), selectedAP = new Set();
   function renderCostChips() {
@@ -550,7 +556,7 @@
       if (set && c.set !== set) return false;
       if (rar && c.rar !== rar) return false;
       if (onlyStock && !(c.best && c.best.s !== 0) && !c.offers.kpp) return false;
-      if (colors.size && !colors.has(c.color)) return false;
+      if (colors.size && !(colors.has(c.color) || (colors.has("AP") && isAP(c.num)))) return false;
       if (selectedEnergy.size && !(c.energy != null && selectedEnergy.has(Math.min(c.energy, 7)))) return false;
       if (selectedAP.size && !(c.ap != null && selectedAP.has(c.ap))) return false;
       for (const t of terms) if (!c.search.includes(t)) return false;
@@ -1267,7 +1273,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     const box = (imports[shop] = imports[shop] || { items: {} });
     if (shop === "kpp" && bp && typeof bp === "object") { // 卡拍拍附帶的 BP：卡號後半段 → BP
       const clean = {};
-      for (const [k, v] of Object.entries(bp)) if (/^[A-Z0-9]+-\d+-(AP)?\d+$/.test(k) && Number.isInteger(v) && v >= 0 && v < 100000) clean[k] = v;
+      for (const [k, v] of Object.entries(bp)) if (/^[A-Z0-9]+-(?:\d+|P)-(AP)?\d+$/.test(k) && Number.isInteger(v) && v >= 0 && v < 100000) clean[k] = v;
       if (Object.keys(clean).length) box.bp = clean;
     }
     if (shop === "yuyu" && sets && typeof sets === "object") {
@@ -1280,7 +1286,7 @@ p{margin:0;font-size:12px;color:#8593c7}
     for (const it of items) {
       if (!Array.isArray(it) || it.length < 5) continue;
       const [num, stars, name, price, stock, url] = it;
-      if (!/^[A-Z0-9]+\/[A-Z0-9]+-\d+-(AP)?\d+$/.test(String(num)) || !(price > 0)) continue;
+      if (!/^[A-Z0-9]+\/[A-Z0-9]+-(?:\d+|P)-(AP)?\d+$/.test(String(num)) || !(price > 0)) continue;
       const k = keyOf(num, +stars || 0);
       const prev = box.items[k];
       // 同一批資料裡同版本出現多次時，保留有庫存且較便宜的

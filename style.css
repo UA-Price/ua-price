@@ -924,3 +924,9 @@ body.admin .viewer-only { display: none !important; }
 /* 對戰選單：主要選項、要小心的選項 */
 .py-sh-btn.primary { border-color: var(--neon-t); color: #fff; font-weight: 700; }
 .py-sh-btn.warn { color: #ff9a8a; border-color: rgba(255, 120, 100, .45); font-size: 13px; }
+
+/* 下一次不會置為活動 */
+.py-card.noup::before { content: "下次不活動"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3; padding: 2px 6px; border-radius: 6px; background: rgba(200, 60, 60, .9); color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; pointer-events: none; }
+
+/* 找卡：AP 卡篩選 */
+.cc.cc-ap { --cc: #ff7a45; }
