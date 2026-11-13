@@ -15,10 +15,10 @@
   const SITE_ORIGIN = EXT ? location.origin : new URL(SITE).origin;
   const host = location.host;
   let shop = host.includes("yuyu-tei") ? "yuyu" : host.includes("hobbystation") ? "hs" : host.includes("dorasuta") ? "dora"
-    : host.includes("merucarduniari") ? "meru" : host.includes("kapaipai") ? "kpp" : host.includes("unionarena-tcg.com") ? "colors" : null;
+    : host.includes("merucarduniari") ? "meru" : host.includes("kapaipai") ? "kpp" : host.includes("uptcg.app") ? "up" : host.includes("unionarena-tcg.com") ? "colors" : null;
   // 官方卡表網站有兩種工作：卡片資料（顏色・費用）和卡片效果（每張卡的詳細頁）
   if (shop === "colors" && window.__UA_AUTO && window.__UA_AUTO.task === "detail") shop = "detail";
-  const NAMES = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", meru: "メルカード", kpp: "卡拍拍", colors: "官方卡表（卡片資料）", detail: "官方卡片效果" };
+  const NAMES = { yuyu: "遊々亭", hs: "Hobby Station", dora: "ドラゴンスター", meru: "メルカード", kpp: "卡拍拍", up: "UPTCG", colors: "官方卡表（卡片資料）", detail: "官方卡片效果" };
   let SHOP_NAME = NAMES[shop];
   // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
   // 遊々亭、Hobby Station 5 秒；ドラゴンスター 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
@@ -534,6 +534,7 @@
       }
     }
     if (shop === "kpp") return runKpp();
+    if (shop === "up") return runUp();
     if (shop === "detail") return runDetail();
     button("停止", false, () => { cancelled = true; say("停止中…（會把已讀到的先送出）"); });
     let series;
@@ -701,6 +702,67 @@
     afterSent(0);
   }
 
+  /* ---------- UPTCG：每個系列頁裡附帶整個系列的卡片資料（含價格，日幣） ---------- */
+  // 頁面是 Next.js 產生的，卡片資料放在 self.__next_f.push([1,"…"]) 裡的 "initialCards":[…]
+  function upCards(html) {
+    let txt = "";
+    for (const m of html.matchAll(/self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g)) {
+      try { txt += JSON.parse(m[1]); } catch (e) {}
+    }
+    const i = txt.indexOf('"initialCards":');
+    if (i < 0) return null;
+    let k = i + 15, dep = 0;
+    for (; k < txt.length; k++) {
+      const c = txt[k];
+      if (c === "[") dep++;
+      else if (c === "]") { dep--; if (!dep) break; }
+      else if (c === '"') { k++; while (k < txt.length && txt[k] !== '"') { if (txt[k] === "\\") k++; k++; } }
+    }
+    try { return JSON.parse(txt.slice(i + 15, k + 1)); } catch (e) { return null; }
+  }
+  async function runUp() {
+    button("停止", false, () => { cancelled = true; say("停止中…（會把已讀到的先送出）"); });
+    say("UPTCG：讀取系列清單…");
+    let codes = [];
+    try {
+      const html = await fetch("/unionarena", { credentials: "include" }).then((r) => { if (r.status === 403) throw new Error("denied"); return r.text(); });
+      if (isDenied(html)) throw new Error("denied");
+      codes = [...new Set([...html.matchAll(/\/unionarena\/series\/([a-z0-9]+)/g)].map((m) => m[1]))];
+    } catch (e) {
+      const t = e.message === "denied" ? DENIED_MSG : "沒辦法讀取 UPTCG 的系列清單（" + e.message + "）。";
+      say(t); reportDone(t, false); return finish(15000);
+    }
+    if (!codes.length) { const t = "UPTCG 找不到系列清單，可能網站改版了，請跟我說。"; say(t); reportDone(t, false); return finish(15000); }
+    let failed = 0, unsentUp = [];
+    for (let i = 0; i < codes.length && !cancelled; i++) {
+      progress(i / codes.length);
+      say(`UPTCG：第 ${i + 1} / ${codes.length} 個系列（${codes[i].toUpperCase()}）\n已讀 ${all.length} 筆`);
+      try {
+        const r = await fetch(`/unionarena/series/${codes[i]}`, { credentials: "include" });
+        const html = await r.text();
+        if (r.status === 403 || isDenied(html)) { stopReason = DENIED_MSG; break; }
+        const cards = upCards(html);
+        if (!cards) { failed++; } else {
+          for (const c of cards) {
+            // id：UA24BT_SHY-1-011、UA24BT_SHY-1-011_2（平行版，稀有度寫 R★）、UAPR_SHY-P-003
+            const m = String(c.id || "").match(/^([A-Z0-9]+)_([A-Z0-9]+-(?:\d+|P)-(?:AP)?\d+)(?:_\w+)?$/);
+            const price = Math.round(+c.price || 0);
+            if (!m || !(price > 0)) continue;
+            const num = m[1] + "/" + m[2];
+            const stars = (String(c.rarity || "").match(/★/g) || []).length;
+            const row = [num, stars, c.name_jp || c.name || "", price, -1, `https://uptcg.app/unionarena/series/${codes[i]}`, c.rarity || ""];
+            all.push(row); unsentUp.push(row);
+          }
+        }
+      } catch (e) { failed++; }
+      if (unsentUp.length >= 500) { if (await send(unsentUp, "UPTCG", false)) unsentUp = []; }
+      if (i < codes.length - 1 && !cancelled) await sleep(DELAY);
+    }
+    const ok = await send(unsentUp, "UPTCG", true);
+    if (!ok) { const t = `讀到 ${all.length} 筆，但送不到查價之境網站。請確認網站分頁還開著，再試一次。`; say(t); reportDone(t, false); return finish(15000); }
+    afterSent(failed);
+  }
+
   /* ---------- 官方卡片效果：每張卡讀一次詳細頁（只抓還沒抓過的） ---------- */
   async function readDetail(num) {
     const html = await fetch(location.origin + "/jp/cardlist/detail_iframe.php?card_no=" + encodeURIComponent(num), { credentials: "include" }).then((r) => r.text());
@@ -783,6 +845,12 @@
     button("只抓新作品", true, () => run("new"));
     button("全部重新抓", false, () => run("all"));
     button("抓卡片效果", false, () => { shop = "detail"; SHOP_NAME = NAMES.detail; run("all"); });
+    button("取消", false, () => finish(0));
+    return;
+  }
+  if (shop === "up") {
+    say("UPTCG 價格匯入（日幣）\n每個系列讀 1 頁，約 60 頁，每頁間隔 5 秒（約 5 分鐘）。");
+    button("開始匯入", true, () => run("all"));
     button("取消", false, () => finish(0));
     return;
   }

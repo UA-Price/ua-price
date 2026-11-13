@@ -20,7 +20,7 @@
   const IMPORT_SHOPS = ["yuyu", "hs", "dora", "meru", "kpp"];
   const JPY_SHOPS = Object.keys(SHOPS).filter((s) => !SHOPS[s].twd); // 用日幣比價的店
   const DATA_KEYS = [...IMPORT_SHOPS, "colors", "detail"]; // 匯入資料的種類：各家價格 + 官方卡表的卡片顏色 + 官方卡片效果
-  const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片資料）" : k === "detail" ? "官方卡片效果" : SHOPS[k].name);
+  const SOURCE_NAME = (k) => (k === "colors" ? "官方卡表（卡片資料）" : k === "detail" ? "官方卡片效果" : k === "up" ? "UPTCG（蓋到 Hobby Station）" : SHOPS[k].name);
   const ENERGY_CHIPS = [0, 1, 2, 3, 4, 5, 6, 7]; // 7 代表 7 以上
   const AP_CHIPS = [1, 2, 3];
   const COLOR_LIST = [
@@ -37,6 +37,7 @@
     "https://dorasuta.jp": "dora",
     "https://www.merucarduniari.jp": "meru",
     "https://trade.kapaipai.tw": "kpp",
+    "https://uptcg.app": "up", // UPTCG：價格直接蓋到 Hobby Station（Hobby Station 被擋時的替代來源）
     "https://www.unionarena-tcg.com": "colors",
   };
   const OLD_DAYS = 14;          // 匯入超過 14 天的價格標示為「舊」
@@ -282,6 +283,7 @@
     if (url && !/^https?:/.test(url)) url = SHOP_BASE[shop] + url;
     if (!url && shop === "yuyu" && item[6] && item[7]) url = `https://yuyu-tei.jp/sell/ua/card/${item[6]}/${item[7]}`;
     if (shop === "kpp") return { shop, p: item[0], s: item[1], url, t: item[4] || 0, rarK: item[5] || "", avg: item[6] || 0 };
+    if (shop === "hs" && item[5] === "up") return { shop, p: item[0], s: item[1], url, t: item[4] || 0, via: "UPTCG" }; // 這筆是從 UPTCG 抓來蓋上的
     return { shop, p: item[0], s: item[1], url, t: item[4] || 0 };
   }
   // 卡拍拍的卡片頁網址（從卡號和稀有度組出來，不另外存）
@@ -756,10 +758,10 @@
     for (const shop of Object.keys(SHOPS)) {
       const o = c.offers[shop];
       const isBest = o && c.best === o && o.s !== 0;
-      const stockTxt = !o ? "" : shop === "kpp" ? (o.avg ? `平均 ${ntd(o.avg)}・最低價` : "目前最低價") : o.s === 0 ? "售完" : o.s > 0 && o.s < 99 ? `剩 ${o.s} 張` : o.s === 99 ? "有庫存" : "";
+      const stockTxt = !o ? "" : o.via ? `${o.via} 的價格` : shop === "kpp" ? (o.avg ? `平均 ${ntd(o.avg)}・最低價` : "目前最低價") : o.s === 0 ? "售完" : o.s > 0 && o.s < 99 ? `剩 ${o.s} 張` : o.s === 99 ? "有庫存" : "";
       const when = o && o.t ? `${new Date(o.t).toLocaleDateString()} 匯入` + (ageText(o.t) ? "・舊" : "") : "";
       const link = o && o.url
-        ? el("a", { class: "btn small cm-go", href: o.url, target: "_blank", rel: "noopener" }, `前往${SHOPS[shop].short} ↗`)
+        ? el("a", { class: "btn small cm-go", href: o.url, target: "_blank", rel: "noopener" }, `前往${o.via || SHOPS[shop].short} ↗`)
         : el("a", { class: "btn small ghost cm-go", href: SEARCH_URL[shop](c.base), target: "_blank", rel: "noopener" }, shop === "meru" || shop === "kpp" ? `前往${SHOPS[shop].short} ↗` : `在${SHOPS[shop].short}搜尋 ↗`);
       shops.append(el("div", { class: `cm-shop ${shop}${isBest ? " best" : ""}${o && o.s === 0 ? " sold" : ""}${o ? "" : " none"}` },
         el("div", { class: "cm-shop-head" },
@@ -1266,9 +1268,31 @@ p{margin:0;font-size:12px;color:#8593c7}
     saveImports("detail");
     return count;
   }
+  // UPTCG 的價格：直接寫進 Hobby Station 的資料（標記來源 "up"），之後 Hobby Station 自己匯入時會再蓋回去
+  function mergeUp(items) {
+    const now = Date.now();
+    const box = (imports.hs = imports.hs || { items: {} });
+    let count = 0;
+    for (const it of items) {
+      if (!Array.isArray(it) || it.length < 5) continue;
+      const [num, stars, name, price, , url] = it;
+      if (!/^[A-Z0-9]+\/[A-Z0-9]+-(?:\d+|P)-(AP)?\d+$/.test(String(num)) || !(price > 0) || price > 10000000) continue;
+      let link = "";
+      try { const u = new URL(url); if (u.origin === "https://uptcg.app") link = u.href; } catch (e) {}
+      const k = keyOf(num, +stars || 0);
+      const prev = box.items[k];
+      if (prev && prev[4] === now && prev[5] === "up" && price >= prev[0]) continue; // 同一批同版本：留便宜的
+      box.items[k] = [Math.round(price), -1, link, String(name || "").slice(0, 80), now, "up"];
+      count++;
+    }
+    box.t = now;
+    saveImports("hs");
+    return count;
+  }
   function mergeImport(shop, items, sets, titles, bp) {
     if (shop === "colors") return mergeColors(items, titles);
     if (shop === "detail") return mergeDetail(items);
+    if (shop === "up") return mergeUp(items);
     const now = Date.now();
     const box = (imports[shop] = imports[shop] || { items: {} });
     if (shop === "kpp" && bp && typeof bp === "object") { // 卡拍拍附帶的 BP：卡號後半段 → BP
