@@ -22,7 +22,7 @@
   let SHOP_NAME = NAMES[shop];
   // 每頁之間的間隔（刻意放慢，避免造成店家負擔或被封鎖）：
   // 遊々亭、Hobby Station 5 秒；ドラゴンスター 曾封鎖過，10 秒；官方卡表每次查詢很小，2 秒
-  const DELAY = shop === "dora" ? 10000 : shop === "colors" || shop === "detail" ? 2000 : 5000;
+  const DELAY = shop === "dora" || shop === "hs" ? 10000 : shop === "colors" || shop === "detail" ? 2000 : 5000;
   const COLORS = ["赤", "青", "黄", "緑", "紫"];
   const sets = {}; // 遊々亭的系列代碼 → 系列名稱
   // 等待用的計時器：分頁在背景時，Chrome 會把一般計時器拖慢到一分鐘一次，
@@ -239,8 +239,8 @@
   }
 
   const isCheckPage = (html) => /安全な接続を確認中|Just a moment/.test(String(html).slice(0, 3000));
-  const isDenied = (html) => /<title>[^<]*(Access denied|Attention Required|Sorry, you have been blocked)/i.test(String(html).slice(0, 3000));
-  const DENIED_MSG = "這家網站目前擋住你的瀏覽器（Cloudflare：Access denied）。通常是一次讀太多頁被暫時封鎖，過幾個小時到一兩天會自己解除，請先不要匯入這家。";
+  const isDenied = (html) => /<title>[^<]*(Access denied|Attention Required|Sorry, you have been blocked|403 Forbidden|^\s*Forbidden)|<h1>\s*Forbidden\s*<\/h1>/i.test(String(html).slice(0, 3000));
+  const DENIED_MSG = "這家網站目前擋住你的瀏覽器（Access denied／Forbidden）。通常是一次讀太多頁被暫時封鎖，過幾個小時到一兩天會自己解除，請先不要匯入這家。";
 
   // 網站要求「確認連線」時：在隱藏的小視窗裡正常打開那一頁，讓網站自己的確認程式在你的瀏覽器裡跑完
   function loadInFrame(url) {
@@ -272,6 +272,7 @@
   async function fetchDoc(url) {
     const r = await fetch(url, { credentials: "include" });
     const html = await r.text();
+    if (r.status === 403 && !isCheckPage(html)) throw new Error("denied"); // 被擋：馬上停，不要繼續讀
     if (isDenied(html)) throw new Error("denied");
     if (!isCheckPage(html)) return new DOMParser().parseFromString(html, "text/html");
     say(msg.textContent.split("\n")[0] + "\n網站正在確認連線，請稍候…");
@@ -545,7 +546,7 @@
           say(`等待網站確認連線完成…（第 ${tryNo} / 6 次重試）\n如果商店分頁出現要你操作的驗證，請自己點一下完成。`);
           await sleep(30000);
         }
-        denied = /Access denied|Attention Required|blocked/i.test(document.title);
+        denied = /Access denied|Attention Required|blocked|Forbidden/i.test(document.title);
         if (denied) break;
         try {
           series = await { yuyu: seriesListYuyu, hs: seriesListHS, dora: seriesListDora, meru: seriesListMeru, colors: seriesListColors }[shop]();
