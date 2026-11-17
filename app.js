@@ -239,6 +239,7 @@
 
   /* ======================= 資料 ======================= */
   let DATA = { updated: null, sets: {}, cards: [] };
+  let HS_LINKS = {}; // Hobby Station 商品頁網址備份：卡片 key → 網址路徑
   let CARDS = [];          // 合併後的卡片
   let BYKEY = new Map();
   let imports = {};                           // 這台裝置自己匯入的（啟動時從 IndexedDB 載入）
@@ -283,7 +284,8 @@
     if (url && !/^https?:/.test(url)) url = SHOP_BASE[shop] + url;
     if (!url && shop === "yuyu" && item[6] && item[7]) url = `https://yuyu-tei.jp/sell/ua/card/${item[6]}/${item[7]}`;
     if (shop === "kpp") return { shop, p: item[0], s: item[1], url, t: item[4] || 0, rarK: item[5] || "", avg: item[6] || 0 };
-    if (shop === "hs" && item[5] === "up") return { shop, p: item[0], s: item[1], url, t: item[4] || 0, via: "UPTCG" }; // 這筆是從 UPTCG 抓來蓋上的
+    // 這筆是從 UPTCG 抓來蓋上的：連結仍然指向 Hobby Station（沒有商品頁就用 Hobby Station 搜尋）
+    if (shop === "hs" && item[5] === "up") return { shop, p: item[0], s: item[1], url: /^https:\/\/uptcg\.app/.test(url) ? "" : url, t: item[4] || 0, via: "UPTCG" };
     return { shop, p: item[0], s: item[1], url, t: item[4] || 0 };
   }
   // 卡拍拍的卡片頁網址（從卡號和稀有度組出來，不另外存）
@@ -364,6 +366,7 @@
           CARDS.push(c);
         }
         c.offers[shop] = offerFrom(item, shop);
+        if (shop === "hs" && !c.offers.hs.url && HS_LINKS[k]) c.offers.hs.url = SHOP_BASE.hs + HS_LINKS[k];
       }
     }
     VARIANTS = new Map();
@@ -758,10 +761,10 @@
     for (const shop of Object.keys(SHOPS)) {
       const o = c.offers[shop];
       const isBest = o && c.best === o && o.s !== 0;
-      const stockTxt = !o ? "" : o.via ? `${o.via} 的價格` : shop === "kpp" ? (o.avg ? `平均 ${ntd(o.avg)}・最低價` : "目前最低價") : o.s === 0 ? "售完" : o.s > 0 && o.s < 99 ? `剩 ${o.s} 張` : o.s === 99 ? "有庫存" : "";
+      const stockTxt = !o ? "" : shop === "kpp" ? (o.avg ? `平均 ${ntd(o.avg)}・最低價` : "目前最低價") : o.s === 0 ? "售完" : o.s > 0 && o.s < 99 ? `剩 ${o.s} 張` : o.s === 99 ? "有庫存" : "";
       const when = o && o.t ? `${new Date(o.t).toLocaleDateString()} 匯入` + (ageText(o.t) ? "・舊" : "") : "";
       const link = o && o.url
-        ? el("a", { class: "btn small cm-go", href: o.url, target: "_blank", rel: "noopener" }, `前往${o.via || SHOPS[shop].short} ↗`)
+        ? el("a", { class: "btn small cm-go", href: o.url, target: "_blank", rel: "noopener" }, `前往${SHOPS[shop].short} ↗`)
         : el("a", { class: "btn small ghost cm-go", href: SEARCH_URL[shop](c.base), target: "_blank", rel: "noopener" }, shop === "meru" || shop === "kpp" ? `前往${SHOPS[shop].short} ↗` : `在${SHOPS[shop].short}搜尋 ↗`);
       shops.append(el("div", { class: `cm-shop ${shop}${isBest ? " best" : ""}${o && o.s === 0 ? " sold" : ""}${o ? "" : " none"}` },
         el("div", { class: "cm-shop-head" },
@@ -1277,10 +1280,10 @@ p{margin:0;font-size:12px;color:#8593c7}
       if (!Array.isArray(it) || it.length < 5) continue;
       const [num, stars, name, price, , url] = it;
       if (!/^[A-Z0-9]+\/[A-Z0-9]+-(?:\d+|P)-(AP)?\d+$/.test(String(num)) || !(price > 0) || price > 10000000) continue;
-      let link = "";
-      try { const u = new URL(url); if (u.origin === "https://uptcg.app") link = u.href; } catch (e) {}
       const k = keyOf(num, +stars || 0);
       const prev = box.items[k];
+      // 連結保留 Hobby Station 原本的商品頁（沒有的話卡片視窗會改成在 Hobby Station 搜尋）
+      const link = prev && prev[2] && !/^https:\/\/uptcg\.app/.test(prev[2]) ? prev[2] : HS_LINKS[k] || "";
       if (prev && prev[4] === now && prev[5] === "up" && price >= prev[0]) continue; // 同一批同版本：留便宜的
       box.items[k] = [Math.round(price), -1, link, String(name || "").slice(0, 80), now, "up"];
       count++;
@@ -1985,6 +1988,11 @@ p{margin:0;font-size:12px;color:#8593c7}
       // 舊的伺服器抓價資料（目前遊々亭擋伺服器連線，通常是空的）
       const r = await fetch("data/cards.json", { cache: "no-cache" });
       if (r.ok) DATA = await r.json();
+    } catch (e) { /* 沒有也沒關係 */ }
+    try {
+      // Hobby Station 商品頁網址備份（被 UPTCG 價格蓋掉的卡，連結還是指回 Hobby Station 商品頁）
+      const r = await fetch("data/hs-links.json", { cache: "no-cache" });
+      if (r.ok) HS_LINKS = (await r.json()) || {};
     } catch (e) { /* 沒有也沒關係 */ }
     DATA.sets = DATA.sets || {};
     refreshAll();
