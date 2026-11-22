@@ -376,13 +376,41 @@
     const haveNum = new Set(CARDS.map((c) => c.num));
     for (const [num, dt] of Object.entries(dtAll)) {
       if (!dt[9] || haveNum.has(num)) continue;
-      const base = baseOf(num), gm = base.match(/^([A-Z0-9]+)-(\d+|P)-/);
-      const set = gm ? (gm[1] + (gm[2] === "P" ? "" : gm[2])).toLowerCase() : "";
-      if (set && dt[11]) DETAIL_SETS[set] = dt[11];
       const k = keyOf(num, 0);
-      const c = { k, num, base, title: titleOf(num), rar: dt[10] || "", stars: 0, name: dt[9], set, id: "", noimg: false, offers: {}, official: true };
+      const c = { k, num, base: baseOf(num), title: titleOf(num), rar: dt[10] || "", stars: 0, name: dt[9], set: "", id: "", noimg: false, offers: {}, official: true };
       BYKEY.set(k, c);
       CARDS.push(c);
+    }
+    // 遊々亭沒賣（沒有系列代碼）的卡：照卡號前段（例 EX18BT）自己分系列，系列選單才找得到
+    // 例：〈物語〉シリーズ Vol.2 只有メルカード有賣
+    const ySets = (eff.yuyu && eff.yuyu.sets) || {};
+    const titleName = {}; // 作品代碼 → 作品名（從遊々亭有分到系列的卡推）
+    for (const c of CARDS) if (c.set && ySets[c.set] && !titleName[c.title]) titleName[c.title] = ySets[c.set].replace(/^(NEW CARD SELECTION|プレシャスブースターパック|アドバンスドデッキ)\s*/, "").replace(/\s*Vol\.\d+$/, "");
+    const detTitle = {}; // 作品代碼 → 官方作品名（官方卡片效果有存作品名的卡）
+    for (const [num, dt] of Object.entries(dtAll)) if (dt[11]) detTitle[titleOf(num)] = detTitle[titleOf(num)] || dt[11];
+    const packHasYuyu = new Set(CARDS.filter((c) => c.set).map((c) => c.num.split("/")[0] + "|" + c.title));
+    for (const c of CARDS) {
+      if (c.set) continue;
+      const pack = c.num.split("/")[0];
+      // 只分正規的補充包／起始牌組（UA42BT、EX18BT、UA42ST…）；PR 卡、或同一盒遊々亭有分系列的就不另外分
+      if (!/^(UA|EX)\d+(BT|ST)$/.test(pack) || !/^[A-Z0-9]+-\d+-/.test(c.base) || packHasYuyu.has(pack + "|" + c.title)) continue;
+      const key = "x:" + pack + ":" + c.title;
+      c.set = key;
+      if (!DETAIL_SETS[key]) {
+        const dt = dtAll[c.num];
+        const nm = (dt && dt[11]) || titleName[c.title] || detTitle[c.title] || c.title;
+        const gen = (c.base.match(/^[A-Z0-9]+-(\d+)-/) || [])[1];
+        DETAIL_SETS[key] = nm + (gen && +gen > 1 ? ` Vol.${gen}` : "");
+      }
+    }
+    // PR 卡：同作品只有一個自己分的系列時，一起放進去（例：D.Gray-man 的 PR 卡）
+    const xByTitle = {};
+    for (const c of CARDS) if (c.set && c.set.startsWith("x:")) (xByTitle[c.title] = xByTitle[c.title] || new Set()).add(c.set);
+    const yByTitle = new Set(CARDS.filter((c) => c.set && !c.set.startsWith("x:")).map((c) => c.title));
+    for (const c of CARDS) {
+      if (c.set || c.num.split("/")[0] !== "UAPR" || yByTitle.has(c.title)) continue;
+      const xs = xByTitle[c.title];
+      if (xs && xs.size === 1) c.set = [...xs][0];
     }
     VARIANTS = new Map();
     const colorItems = (eff.colors && eff.colors.items) || {};
@@ -557,7 +585,14 @@
   function fillFilters() {
     const fSet = $("#fSet");
     fSet.length = 1;
-    for (const [code, name] of Object.entries(allSets())) fSet.append(el("option", { value: code, text: name }));
+    // 自己分的系列（x:…）排在同作品的遊々亭系列旁邊
+    const base = Object.entries({ ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
+    for (const [code, name] of Object.entries(DETAIL_SETS)) {
+      const t = name.replace(/\s*Vol\.\d+$/, "");
+      const at = base.findIndex(([, n]) => n.includes(t));
+      if (at >= 0) base.splice(at, 0, [code, name]); else base.unshift([code, name]);
+    }
+    for (const [code, name] of base) fSet.append(el("option", { value: code, text: name }));
     // 只有星星、沒有稀有度的（只在其他店出現的卡）不列進選單
     const rars = [...new Set(CARDS.map((c) => c.rar).filter((r) => r && !/^[★☆]+$/.test(r)))].sort((a, b) =>
       a.replace(/[★☆]/g, "") === b.replace(/[★☆]/g, "") ? starsOf(a) - starsOf(b) : a < b ? -1 : 1);
