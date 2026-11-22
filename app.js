@@ -294,8 +294,8 @@
     const q = new URLSearchParams({ cardkey: card, rare: rar, pack, packcard: card });
     return "https://trade.kapaipai.tw/cardredirect/uajp?" + q.toString();
   };
-  let DETAIL_SETS = {}; // 只有官方資料的新作品：系列代碼 → 作品名
-  const allSets = () => ({ ...DETAIL_SETS, ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
+  let TITLE_NAMES = {}; // 作品代碼 → 作品名（系列選單用）
+  const allSets = () => ({ ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
 
   function buildCards() {
     BYKEY = new Map();
@@ -371,7 +371,6 @@
       }
     }
     // 店家還沒上架、但官方卡表已經有的新卡：先用官方資料建立（沒有價格）
-    DETAIL_SETS = {};
     const dtAll = (eff.detail && eff.detail.items) || {};
     const haveNum = new Set(CARDS.map((c) => c.num));
     for (const [num, dt] of Object.entries(dtAll)) {
@@ -381,37 +380,18 @@
       BYKEY.set(k, c);
       CARDS.push(c);
     }
-    // 遊々亭沒賣（沒有系列代碼）的卡：照卡號前段（例 EX18BT）自己分系列，系列選單才找得到
-    // 例：〈物語〉シリーズ Vol.2 只有メルカード有賣
+    // 系列選單用官方的「作品」分類（同作品的 Vol.1、Vol.2、PR、AP 卡都在一起）
+    // 作品名：官方卡片效果存的作品名 → 遊々亭的系列名（去掉 Vol.N 等字）→ 作品代碼
     const ySets = (eff.yuyu && eff.yuyu.sets) || {};
-    const titleName = {}; // 作品代碼 → 作品名（從遊々亭有分到系列的卡推）
-    for (const c of CARDS) if (c.set && ySets[c.set] && !titleName[c.title]) titleName[c.title] = ySets[c.set].replace(/^(NEW CARD SELECTION|プレシャスブースターパック|アドバンスドデッキ)\s*/, "").replace(/\s*Vol\.\d+$/, "");
-    const detTitle = {}; // 作品代碼 → 官方作品名（官方卡片效果有存作品名的卡）
-    for (const [num, dt] of Object.entries(dtAll)) if (dt[11]) detTitle[titleOf(num)] = detTitle[titleOf(num)] || dt[11];
-    const packHasYuyu = new Set(CARDS.filter((c) => c.set).map((c) => c.num.split("/")[0] + "|" + c.title));
-    for (const c of CARDS) {
-      if (c.set) continue;
-      const pack = c.num.split("/")[0];
-      // 只分正規的補充包／起始牌組（UA42BT、EX18BT、UA42ST…）；PR 卡、或同一盒遊々亭有分系列的就不另外分
-      if (!/^(UA|EX)\d+(BT|ST)$/.test(pack) || !/^[A-Z0-9]+-\d+-/.test(c.base) || packHasYuyu.has(pack + "|" + c.title)) continue;
-      const key = "x:" + pack + ":" + c.title;
-      c.set = key;
-      if (!DETAIL_SETS[key]) {
-        const dt = dtAll[c.num];
-        const nm = (dt && dt[11]) || titleName[c.title] || detTitle[c.title] || c.title;
-        const gen = (c.base.match(/^[A-Z0-9]+-(\d+)-/) || [])[1];
-        DETAIL_SETS[key] = nm + (gen && +gen > 1 ? ` Vol.${gen}` : "");
-      }
-    }
-    // PR 卡：同作品只有一個自己分的系列時，一起放進去（例：D.Gray-man 的 PR 卡）
-    const xByTitle = {};
-    for (const c of CARDS) if (c.set && c.set.startsWith("x:")) (xByTitle[c.title] = xByTitle[c.title] || new Set()).add(c.set);
-    const yByTitle = new Set(CARDS.filter((c) => c.set && !c.set.startsWith("x:")).map((c) => c.title));
-    for (const c of CARDS) {
-      if (c.set || c.num.split("/")[0] !== "UAPR" || yByTitle.has(c.title)) continue;
-      const xs = xByTitle[c.title];
-      if (xs && xs.size === 1) c.set = [...xs][0];
-    }
+    const fromYuyu = {};
+    for (const c of CARDS) if (c.set && ySets[c.set] && c.set !== "other" && !fromYuyu[c.title]) fromYuyu[c.title] = ySets[c.set].replace(/^(NEW CARD SELECTION|プレシャスブースターパック|アドバンスドデッキ|スタートデッキ)\s*/, "").replace(/\s*Vol\.\d+$/, "");
+    const fromDetail = {};
+    for (const [num, dt] of Object.entries(dtAll)) if (dt[11] && !fromDetail[titleOf(num)]) fromDetail[titleOf(num)] = dt[11];
+    TITLE_NAMES = {};
+    const cnt = {};
+    for (const c of CARDS) cnt[c.title] = (cnt[c.title] || 0) + 1;
+    // 不知道作品名、卡又很少的（多半是店家卡號打錯）不放進選單，「全部系列」裡還是看得到
+    for (const c of CARDS) if (c.title && c.title !== "UAPR" && !TITLE_NAMES[c.title] && (fromDetail[c.title] || fromYuyu[c.title] || cnt[c.title] >= 10)) TITLE_NAMES[c.title] = fromDetail[c.title] || fromYuyu[c.title] || c.title;
     VARIANTS = new Map();
     const colorItems = (eff.colors && eff.colors.items) || {};
     const bpMap = (eff.kpp && eff.kpp.bp) || {};
@@ -585,14 +565,9 @@
   function fillFilters() {
     const fSet = $("#fSet");
     fSet.length = 1;
-    // 自己分的系列（x:…）排在同作品的遊々亭系列旁邊
-    const base = Object.entries({ ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
-    for (const [code, name] of Object.entries(DETAIL_SETS)) {
-      const t = name.replace(/\s*Vol\.\d+$/, "");
-      const at = base.findIndex(([, n]) => n.includes(t));
-      if (at >= 0) base.splice(at, 0, [code, name]); else base.unshift([code, name]);
-    }
-    for (const [code, name] of base) fSet.append(el("option", { value: code, text: name }));
+    // 照作品分（官方分類），依作品名排序
+    const list = Object.entries(TITLE_NAMES).sort((x, y) => x[1].localeCompare(y[1], "ja"));
+    for (const [code, name] of list) fSet.append(el("option", { value: code, text: name }));
     // 只有星星、沒有稀有度的（只在其他店出現的卡）不列進選單
     const rars = [...new Set(CARDS.map((c) => c.rar).filter((r) => r && !/^[★☆]+$/.test(r)))].sort((a, b) =>
       a.replace(/[★☆]/g, "") === b.replace(/[★☆]/g, "") ? starsOf(a) - starsOf(b) : a < b ? -1 : 1);
@@ -608,7 +583,7 @@
     const set = $("#fSet").value, rar = $("#fRar").value, onlyStock = $("#fStock").checked, sort = $("#fSort").value;
     const colors = selectedColors;
     filtered = CARDS.filter((c) => {
-      if (set && c.set !== set) return false;
+      if (set && c.title !== set) return false;
       if (rar && c.rar !== rar) return false;
       if (onlyStock && !(c.best && c.best.s !== 0) && !c.offers.kpp) return false;
       if (colors.size && !(colors.has(c.color) || (colors.has("AP") && isAP(c.num)))) return false;
@@ -795,7 +770,7 @@
       c.ap != null ? el("span", { class: "cm-cost", text: `消費 AP ${c.ap}` }) : "",
       c.bp != null ? el("span", { class: "cm-cost", text: `BP ${c.bp}` }) : "",
       c.genText ? el("span", { class: "cm-cost", text: `發生能源 ${c.genText.replace(/[\[\]]/g, "")}` }) : "",
-      c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, SETNAMES[c.set] ? el("span", { class: "cm-set", text: SETNAMES[c.set] }) : "");
+      c.rar ? el("span", { class: "rar", text: c.rar }) : "", c.num, (SETNAMES[c.set] || TITLE_NAMES[c.title]) ? el("span", { class: "cm-set", text: SETNAMES[c.set] || TITLE_NAMES[c.title] }) : "");
     // 官方卡片效果
     let fx = $("#cmFx");
     if (!fx) { fx = el("div", { id: "cmFx", class: "cm-fx" }); meta.after(fx); }
@@ -868,7 +843,7 @@
       thumbEl(c),
       el("div", {},
         el("div", { class: "c-name", text: c.name }),
-        el("div", { class: "c-meta" }, colorDot(c), costBadge(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, SETNAMES[c.set] ? " · " + SETNAMES[c.set] : ""),
+        el("div", { class: "c-meta" }, colorDot(c), costBadge(c), c.rar ? el("span", { class: "rar", text: c.rar }) : null, c.num, (SETNAMES[c.set] || TITLE_NAMES[c.title]) ? " · " + (SETNAMES[c.set] || TITLE_NAMES[c.title]) : ""),
         offersEl(c)),
       el("div", { class: "add-col" },
         el("button", {
