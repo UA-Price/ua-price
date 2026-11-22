@@ -768,6 +768,12 @@
     const html = await fetch(location.origin + "/jp/cardlist/detail_iframe.php?card_no=" + encodeURIComponent(num), { credentials: "include" }).then((r) => r.text());
     if (isDenied(html)) throw new Error("denied");
     const doc = new DOMParser().parseFromString(html, "text/html");
+    // 卡名（去掉讀音）、稀有度、作品名：店家還沒上架的新卡，網站也能先顯示
+    const nameEl = doc.querySelector(".cardNameCol");
+    if (nameEl) nameEl.querySelectorAll(".rubyData").forEach((x) => x.remove());
+    const cname = nameEl ? nameEl.textContent.replace(/\s+/g, " ").trim() : "";
+    const rare = ((doc.querySelector(".rareData") || {}).textContent || "").trim();
+    const ttl = ((doc.querySelector(".cardDataTitleCol img") || { getAttribute: () => "" }).getAttribute("alt") || "").trim();
     doc.querySelectorAll("img").forEach((img) => img.replaceWith("[" + (img.getAttribute("alt") || "") + "]"));
     const f = {};
     doc.querySelectorAll(".cardDataCol").forEach((dl) => {
@@ -775,7 +781,7 @@
       if (dt && dd) f[dt.textContent.replace(/\s+/g, "")] = dd.textContent.replace(/\s+/g, " ").trim();
     });
     if (!Object.keys(f).length) return null;
-    return [num, f["カード種類"] || "", f["BP"] || "", f["特徴"] || "", f["発生エナジー"] || "", f["効果"] || "", f["トリガー"] || "", f["必要エナジー"] || "", f["消費AP"] || ""];
+    return [num, f["カード種類"] || "", f["BP"] || "", f["特徴"] || "", f["発生エナジー"] || "", f["効果"] || "", f["トリガー"] || "", f["必要エナジー"] || "", f["消費AP"] || "", cname, rare, ttl];
   }
   async function runDetail() {
     button("停止", false, () => { cancelled = true; say("停止中…（已讀到的會先送出）"); });

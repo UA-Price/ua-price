@@ -294,7 +294,8 @@
     const q = new URLSearchParams({ cardkey: card, rare: rar, pack, packcard: card });
     return "https://trade.kapaipai.tw/cardredirect/uajp?" + q.toString();
   };
-  const allSets = () => ({ ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
+  let DETAIL_SETS = {}; // 只有官方資料的新作品：系列代碼 → 作品名
+  const allSets = () => ({ ...DETAIL_SETS, ...(DATA.sets || {}), ...((effImports().yuyu || {}).sets || {}) });
 
   function buildCards() {
     BYKEY = new Map();
@@ -368,6 +369,20 @@
         c.offers[shop] = offerFrom(item, shop);
         if (shop === "hs" && !c.offers.hs.url && HS_LINKS[k]) c.offers.hs.url = SHOP_BASE.hs + HS_LINKS[k];
       }
+    }
+    // 店家還沒上架、但官方卡表已經有的新卡：先用官方資料建立（沒有價格）
+    DETAIL_SETS = {};
+    const dtAll = (eff.detail && eff.detail.items) || {};
+    const haveNum = new Set(CARDS.map((c) => c.num));
+    for (const [num, dt] of Object.entries(dtAll)) {
+      if (!dt[9] || haveNum.has(num)) continue;
+      const base = baseOf(num), gm = base.match(/^([A-Z0-9]+)-(\d+|P)-/);
+      const set = gm ? (gm[1] + (gm[2] === "P" ? "" : gm[2])).toLowerCase() : "";
+      if (set && dt[11]) DETAIL_SETS[set] = dt[11];
+      const k = keyOf(num, 0);
+      const c = { k, num, base, title: titleOf(num), rar: dt[10] || "", stars: 0, name: dt[9], set, id: "", noimg: false, offers: {}, official: true };
+      BYKEY.set(k, c);
+      CARDS.push(c);
     }
     VARIANTS = new Map();
     const colorItems = (eff.colors && eff.colors.items) || {};
@@ -1263,8 +1278,8 @@ p{margin:0;font-size:12px;color:#8593c7}
     let count = 0;
     for (const it of items) {
       if (!Array.isArray(it) || !NUM_RE.test(String(it[0]))) continue;
-      // [種類, BP, 特徵, 發生能源, 效果, 觸發, 時間, 必要エナジー, 消費AP]
-      box.items[it[0]] = [str(it[1], 20), str(it[2], 12), str(it[3], 80), str(it[4], 20), str(it[5], 1500), str(it[6], 600), now, str(it[7], 20), str(it[8], 6)];
+      // [種類, BP, 特徵, 發生能源, 效果, 觸發, 時間, 必要エナジー, 消費AP, 卡名, 稀有度, 作品名]
+      box.items[it[0]] = [str(it[1], 20), str(it[2], 12), str(it[3], 80), str(it[4], 20), str(it[5], 1500), str(it[6], 600), now, str(it[7], 20), str(it[8], 6), str(it[9], 80), str(it[10], 12), str(it[11], 60)];
       count++;
     }
     box.t = now;
@@ -1393,9 +1408,11 @@ p{margin:0;font-size:12px;color:#8593c7}
       // 匯入程式問：哪些卡的效果已經抓過（只抓新的）
       await importsReady;
       // 已經抓過的卡＝有效果資料，而且（有必要エナジー資料，或官方卡表已經有它的顏色・費用）
+      // 店家都還沒有的卡，要有卡名才算抓過（舊資料沒存卡名，重抓一次才能在網站先顯示）
       const ef = effImports();
       const dtI = (ef.detail && ef.detail.items) || {}, coI = (ef.colors && ef.colors.items) || {};
-      return reply({ type: "ua-done", batch: d.batch, known: Object.keys(dtI).filter((k) => (dtI[k][7] && dtI[k][7] !== "") || coI[k]) });
+      const inShop = new Set(CARDS.filter((c) => Object.keys(c.offers).length).map((c) => c.num));
+      return reply({ type: "ua-done", batch: d.batch, known: Object.keys(dtI).filter((k) => ((dtI[k][7] && dtI[k][7] !== "") || coI[k]) && (inShop.has(k) || dtI[k][9])) });
     }
     if (d.type === "ua-query") {
       // 匯入程式問：官方卡表哪些作品已經抓過（這一版起才有費用資料）
@@ -1696,6 +1713,7 @@ p{margin:0;font-size:12px;color:#8593c7}
 
   /* ======================= 畫面切換與事件 ======================= */
   function switchView(v) {
+    if (v === "play" && !isAdmin()) v = "search"; // 對戰模擬器目前只開放管理端
     // 只換掉 view-xxx，保留 admin、modal-open 等其他狀態
     document.body.classList.remove("view-search", "view-deck", "view-settings", "view-play");
     if (v === "play") renderPlayPanel();
