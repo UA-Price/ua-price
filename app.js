@@ -96,7 +96,8 @@
   function imgCandidates(c, size) {
     const off = officialList(c);
     const list = [];
-    if (size && !proxyBroken) off.forEach((u) => list.push({ src: thumbOf(u, size), proxied: true, orig: u }));
+    // 大圖（size 0）也先走縮圖服務的 800px 版本：官網現在常常擋掉直接從別的網站讀圖
+    if (!proxyBroken) off.forEach((u) => list.push({ src: thumbOf(u, size || 800), proxied: true, orig: u }));
     off.forEach((u) => list.push({ src: u }));
     const y = imgUrl(c);
     if (y) list.push({ src: y });
@@ -366,8 +367,9 @@
           BYKEY.set(k, c);
           CARDS.push(c);
         }
-        c.offers[shop] = offerFrom(item, shop);
-        if (shop === "hs" && !c.offers.hs.url && HS_LINKS[k]) c.offers.hs.url = SHOP_BASE.hs + HS_LINKS[k];
+        // メルカード 還沒開賣的卡會標 ¥9,999,999：當作沒有價格
+        if (!(item[0] >= 9999999)) c.offers[shop] = offerFrom(item, shop);
+        if (shop === "hs" && c.offers.hs && !c.offers.hs.url && HS_LINKS[k]) c.offers.hs.url = SHOP_BASE.hs + HS_LINKS[k];
       }
     }
     // 店家還沒上架、但官方卡表已經有的新卡：先用官方資料建立（沒有價格）
